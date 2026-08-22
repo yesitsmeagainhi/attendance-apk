@@ -65,3 +65,7 @@ credentials/
 # Ship them as GitHub Release assets instead.
 *.apk
 *.aab
+
+# scratch backups
+*.bak
+*.bak.*
