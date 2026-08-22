@@ -73,16 +73,24 @@ cd e:/code/attendly-native/android && ./gradlew assembleDebug
 
 APK lands in `android/app/build/outputs/apk/debug/app-debug.apk`.
 
-Regenerate the native project after changing `app.json`:
+### Do not run `prebuild --clean`
 
-```bash
-npx expo prebuild --platform android --clean
-```
+`android/` is committed to this repository, not generated on demand, because it
+holds three things `app.json` cannot express:
 
-`prebuild --clean` deletes and recreates `android/`, so never edit files in
-there by hand — the changes will be lost. Configure through `app.json` plugins
-instead. Note that it also rewrites `android/local.properties`; if Gradle stops
-finding the SDK, restore it with `sdk.dir=C:/Android/sdk`.
+- the release signing config in `android/app/build.gradle`
+- `reactNativeArchitectures=armeabi-v7a,arm64-v8a` in `android/gradle.properties`,
+  which drops the emulator-only x86 libraries and takes the APK from 118 MB to 66 MB
+- Gradle memory limits tuned for a 7.6 GB host
+
+`npx expo prebuild --platform android --clean` deletes and recreates that
+directory, silently reverting all three — the next release would be a
+debug-signed 118 MB build. If you ever must regenerate it, re-apply those three
+settings afterwards and restore `android/local.properties` with
+`sdk.dir=C:/Android/sdk`.
+
+Changes to app icons, permissions, and plugins in `app.json` still need a
+prebuild to take effect. Run it **without** `--clean` and review the diff.
 
 ## Design decisions worth knowing
 

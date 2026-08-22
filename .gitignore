@@ -38,7 +38,20 @@ yarn-error.*
 
 # generated native folders
 /ios
-/android
+
+# android/ IS committed on purpose. It carries the release signing config, the
+# reactNativeArchitectures setting that takes the APK from 118 MB to 66 MB, and
+# the Gradle memory tuning this host needs. Regenerating it from app.json alone
+# would silently lose all three and produce a debug-signed 118 MB build.
+# Only build artifacts and machine-specific paths are excluded.
+/android/build/
+/android/.gradle/
+/android/.kotlin/
+/android/app/build/
+/android/app/.cxx/
+/android/local.properties
+/android/app/*.jks
+/android/keystore.properties
 
 # Release signing material - never commit
 android/keystore.properties
