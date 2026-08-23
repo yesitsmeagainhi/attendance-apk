@@ -4,9 +4,17 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, ApiError } from "../src/api/client";
-import { acquireLocation, compressPhoto, PunchPrepError } from "../src/lib/punch";
+import { api, ApiError, Branch } from "../src/api/client";
+import {
+  acquireLocation,
+  compressPhoto,
+  formatDistance,
+  nearestBranch,
+  NearestBranch,
+  PunchPrepError,
+} from "../src/lib/punch";
 import { Button, Notice } from "../src/components/ui";
+import { present } from "../src/lib/notify";
 import { colors, radius, spacing, type } from "../src/theme";
 
 type LocState =
@@ -40,6 +48,7 @@ export default function PunchScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geoAlert, setGeoAlert] = useState<ApiError["geoAlert"]>(null);
+  const [branches, setBranches] = useState<Branch[] | null>(null);
 
   const refreshLocation = useCallback(async () => {
     setLoc({ kind: "pending" });
@@ -75,6 +84,28 @@ export default function PunchScreen() {
     };
   }, []);
 
+  // Office coordinates, so the distance warning can be shown before the selfie
+  // rather than after the server rejects the upload. Failure here is non-fatal:
+  // the server still enforces the geo-fence on submit.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .branches()
+      .then((res) => {
+        if (!cancelled) setBranches(res.branches);
+      })
+      .catch(() => {
+        if (!cancelled) setBranches([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const nearest: NearestBranch | null =
+    loc.kind === "ready" && branches?.length ? nearestBranch(loc, branches) : null;
+  const outsideFence = !!nearest && !nearest.inside;
+
   async function onCapture() {
     if (busy) return;
     setError(null);
@@ -105,6 +136,14 @@ export default function PunchScreen() {
         longitude: loc.longitude,
       });
       setPhase("done");
+      // Confirm in the tray as well as on screen: the punch is the one action
+      // in this app that must leave the employee certain it was recorded, and a
+      // screen they navigate away from a second later is thin proof.
+      present(
+        punchType === "IN" ? "Punched in" : "Punched out",
+        `${new Date().toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} · recorded by Attendly`,
+        { kind: "punch" },
+      );
       setTimeout(() => router.back(), 1100);
     } catch (e) {
       if (e instanceof ApiError) {
@@ -191,13 +230,26 @@ export default function PunchScreen() {
             </View>
           ) : null}
 
+          {nearest && phase !== "done" && !error ? (
+            <View style={styles.wide}>
+              <Notice tone={outsideFence ? "warn" : "ok"}>
+                {outsideFence
+                  ? `You are ${formatDistance(nearest.distance)} away from ${nearest.name}. ` +
+                    `You need to be within ${formatDistance(nearest.allowedRadius)} of the office ` +
+                    `to ${actionLabel}. Please move to the office location, then tap Refresh.`
+                  : `You are at ${nearest.name} (${formatDistance(nearest.distance)} away).`}
+              </Notice>
+            </View>
+          ) : null}
+
           {error ? (
             <View style={styles.wide}>
               <Notice>
-                {error}
                 {geoAlert
-                  ? `\n\nNearest office: ${geoAlert.branchName} — you are ${geoAlert.distance}m away, and the limit is ${geoAlert.allowedRadius}m.`
-                  : ""}
+                  ? `You are ${formatDistance(geoAlert.distance)} away from ${geoAlert.branchName}. ` +
+                    `You need to be within ${formatDistance(geoAlert.allowedRadius)} of the office ` +
+                    `to ${actionLabel}. Please move to the office location and try again.`
+                  : error}
               </Notice>
             </View>
           ) : null}

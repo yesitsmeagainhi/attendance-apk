@@ -61,6 +61,11 @@ android/app/*.jks
 # `expo prebuild --clean` deletes that whole directory.
 credentials/
 
+# Firebase config. Kept out of a public repo: it carries the project's API key
+# and app id. Not a sending credential (that is the service account, server-side
+# only), but there is no reason to publish it.
+android/app/google-services.json
+
 # Built APKs - GitHub rejects files over 100 MB and binaries bloat every clone.
 # Ship them as GitHub Release assets instead.
 *.apk

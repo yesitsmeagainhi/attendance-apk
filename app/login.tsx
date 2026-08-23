@@ -2,12 +2,14 @@ import React, { useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { api, ApiError } from "../src/api/client";
 import { useAuth } from "../src/auth/AuthContext";
 import { Button, Card, Field, Muted, Notice } from "../src/components/ui";
@@ -21,6 +23,7 @@ import { API_BASE_URL, IS_PRODUCTION_TARGET } from "../src/config";
  */
 export default function LoginScreen() {
   const { signIn } = useAuth();
+  const router = useRouter();
   const [step, setStep] = useState<"mobile" | "otp">("mobile");
   const [mobile, setMobile] = useState("");
   const [otp, setOtp] = useState("");
@@ -59,7 +62,12 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       const res = await api.verifyOtp(employee.id, otp.trim());
-      await signIn({ token: res.token, name: res.name, employeeId: res.employeeId });
+      await signIn({
+        token: res.token,
+        name: res.name,
+        employeeId: res.employeeId,
+        role: res.role ?? "",
+      });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
     } finally {
@@ -77,12 +85,20 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.brandRow}>
+          {/* The logo is the door to admin sign-in. Employees never need it, so
+              it stays out of their way rather than sitting on screen as a button
+              68 people have to be told to ignore. */}
+          <Pressable
+            onPress={() => router.push("/admin-login")}
+            accessibilityRole="button"
+            accessibilityLabel="Administrator sign in"
+            style={({ pressed }) => [styles.brandRow, { opacity: pressed ? 0.6 : 1 }]}
+          >
             <View style={styles.mark}>
               <Text style={styles.markText}>A</Text>
             </View>
             <Text style={styles.brandName}>Attendly</Text>
-          </View>
+          </Pressable>
 
           <Text style={styles.headline}>
             {step === "mobile" ? "Sign in to mark attendance" : `Hello, ${employee?.name ?? ""}`}

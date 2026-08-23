@@ -10,8 +10,15 @@ import { api, setAuthToken } from "../api/client";
 const TOKEN_KEY = "attendly.session.token";
 const NAME_KEY = "attendly.session.name";
 const EMPLOYEE_KEY = "attendly.session.employeeId";
+const ROLE_KEY = "attendly.session.role";
 
-type Session = { token: string; name: string; employeeId: string };
+/**
+ * `role` is whatever the server calls this account — the same string
+ * `verify-otp` and `session-check` return. It is kept so the UI can tell an
+ * admin apart from an employee; the server still decides what each token is
+ * allowed to do, so this is for display and navigation only.
+ */
+type Session = { token: string; name: string; employeeId: string; role: string };
 
 type AuthValue = {
   session: Session | null;
@@ -37,20 +44,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // The server is the authority on whether this token still works. An
         // employee signing in elsewhere invalidates it, since verify-otp drops
         // existing sessions.
+        let role = "";
         try {
           const check = await api.sessionCheck();
           if (!check?.valid) throw new Error("invalid");
+          role = check.role ?? "";
         } catch {
           await clearStorage();
           setAuthToken(null);
           return;
         }
 
-        const [name, employeeId] = await Promise.all([
+        const [name, employeeId, storedRole] = await Promise.all([
           SecureStore.getItemAsync(NAME_KEY),
           SecureStore.getItemAsync(EMPLOYEE_KEY),
+          SecureStore.getItemAsync(ROLE_KEY),
         ]);
-        setSession({ token, name: name ?? "", employeeId: employeeId ?? "" });
+        // session-check is the fresher answer; fall back to what was stored at
+        // sign-in if this build of the server does not return a role.
+        const effectiveRole = role || storedRole || "";
+        // Write it back. The background notification worker has no React tree
+        // and reads this key directly, so a role that only ever lived in memory
+        // would leave it polling the wrong endpoints forever — silently, since
+        // the wrong-role calls just fail and get swallowed.
+        if (effectiveRole && effectiveRole !== storedRole) {
+          SecureStore.setItemAsync(ROLE_KEY, effectiveRole).catch(() => {});
+        }
+        setSession({
+          token,
+          name: name ?? "",
+          employeeId: employeeId ?? "",
+          role: effectiveRole,
+        });
       } finally {
         setRestoring(false);
       }
@@ -62,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       SecureStore.setItemAsync(TOKEN_KEY, s.token),
       SecureStore.setItemAsync(NAME_KEY, s.name),
       SecureStore.setItemAsync(EMPLOYEE_KEY, s.employeeId),
+      SecureStore.setItemAsync(ROLE_KEY, s.role),
     ]);
     setAuthToken(s.token);
     setSession(s);
@@ -93,6 +119,7 @@ async function clearStorage() {
     SecureStore.deleteItemAsync(TOKEN_KEY),
     SecureStore.deleteItemAsync(NAME_KEY),
     SecureStore.deleteItemAsync(EMPLOYEE_KEY),
+    SecureStore.deleteItemAsync(ROLE_KEY),
   ]);
 }
 

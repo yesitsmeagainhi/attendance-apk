@@ -73,6 +73,24 @@ async function request(path: string, init?: RequestInit) {
   return parse(res);
 }
 
+/**
+ * Shared request helper for the admin surface in ./admin.ts, so those routes
+ * get the same auth header, error parsing and offline message as the employee
+ * ones without re-exporting the internals.
+ */
+export function adminRequest(
+  path: string,
+  init?: { method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown },
+) {
+  const method = init?.method ?? "GET";
+  if (init?.body === undefined) return request(path, { method, headers: headers() });
+  return request(path, {
+    method,
+    headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(init.body),
+  });
+}
+
 function getJson(path: string) {
   return request(path, { method: "GET", headers: headers() });
 }
@@ -85,10 +103,32 @@ function postJson(path: string, body: unknown) {
   });
 }
 
+function patchJson(path: string, body: unknown) {
+  return request(path, {
+    method: "PATCH",
+    headers: headers({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+}
+
 // ---------------------------------------------------------------- auth
 
 export type RequestOtpResult = { ok: true; employeeId: string; employeeName: string };
 export type VerifyOtpResult = { role: string; name: string; token: string; employeeId: string };
+
+/**
+ * `/api/auth/login` is the web dashboard's email + password endpoint. Its exact
+ * response shape is owned by the server, so everything except the token is
+ * optional and read defensively -- an admin account has no employee record to
+ * borrow a name or id from.
+ */
+export type AdminLoginResult = {
+  token?: string;
+  role?: string;
+  name?: string;
+  employeeId?: string;
+  user?: { id?: string; name?: string; role?: string; email?: string; token?: string };
+};
 
 export const api = {
   requestOtp: (mobileNumber: string): Promise<RequestOtpResult> =>
@@ -97,10 +137,29 @@ export const api = {
   verifyOtp: (employeeId: string, otpCode: string): Promise<VerifyOtpResult> =>
     postJson("/api/auth/verify-otp", { employeeId, otpCode }),
 
+  /** Admin sign-in. The OTP flow only ever issues employee sessions. */
+  adminLogin: (email: string, password: string): Promise<AdminLoginResult> =>
+    postJson("/api/auth/login", { email, password }),
+
   sessionCheck: (): Promise<{ valid: boolean; role: string }> =>
     getJson("/api/auth/session-check"),
 
   logout: () => request("/api/auth/logout", { method: "POST", headers: headers() }),
+
+  /**
+   * Hand the server this device's FCM token so it can be woken for things that
+   * cannot wait for a background poll — a login code above all, since it dies
+   * in five minutes and Android will not wake a closed app that fast.
+   */
+  registerPushToken: (token: string, platform = "android") =>
+    postJson("/api/push/register", { token, platform }),
+
+  unregisterPushToken: (token: string) =>
+    request("/api/push/register", {
+      method: "DELETE",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ token }),
+    }),
 
   // ------------------------------------------------------------ attendance
 
@@ -111,7 +170,35 @@ export const api = {
 
   branches: (): Promise<{ branches: Branch[] }> => getJson("/api/branches/active"),
 
+  /**
+   * Whose birthday it is today. Readable by any signed-in account, employees
+   * included — the wish is for the whole office. Rejects with a 404 until the
+   * backend carrying the birthday migration is deployed, which callers treat as
+   * "no birthdays" rather than an error.
+   */
+  birthdays: (): Promise<{ date: string; birthdays: BirthdayPerson[] }> =>
+    getJson("/api/birthdays"),
+
+  /**
+   * The office-wide settings an admin controls from the dashboard. Readable by
+   * any signed-in account, employees included — the employee form link is shown
+   * on the Profile screen. Missing values come back as "", never null.
+   */
+  appSettings: (): Promise<{ settings: { employeeFormUrl: string; employeeFormLabel: string } }> =>
+    getJson("/api/app-settings"),
+
   profile: (): Promise<{ profile: Profile }> => getJson("/api/employee/profile"),
+
+  /**
+   * The one field an employee owns on their own record, and only twice over:
+   * the server counts the self-edits and answers the third with a 403 pointing
+   * at Head Office. Saving the date already stored is free — it comes back
+   * `{ unchanged: true }` without spending an edit.
+   */
+  updateMyProfile: (
+    dateOfBirth: string,
+  ): Promise<{ ok: true; unchanged?: boolean; editsRemaining: number }> =>
+    patchJson("/api/employee/profile", { dateOfBirth }),
 
   /**
    * The punch endpoint takes multipart form data, not JSON, and rejects a photo
@@ -181,6 +268,8 @@ export const api = {
 };
 
 // ---------------------------------------------------------------- types
+
+export type BirthdayPerson = { id: string; name: string; jobRole: string; office: string };
 
 export type Branch = {
   id: string;
@@ -290,4 +379,10 @@ export type Profile = {
   office: string;
   role: string;
   createdAt: string;
+  /** "YYYY-MM-DD", or "" when no birthday has ever been recorded. */
+  dateOfBirth: string;
+  /** Self-edits already spent, 0-2. An admin's edits never count towards it. */
+  profileEditCount: number;
+  /** Math.max(0, 2 - profileEditCount), computed server-side. */
+  editsRemaining: number;
 };

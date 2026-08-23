@@ -51,7 +51,8 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Attendly checks your location to confirm you are at an office branch when you punch."
         }
-      ]
+      ],
+      "expo-background-task"
     ],
     "extra": {
       "router": {},

@@ -96,3 +96,54 @@ export function formatDate(iso: string): string {
   if (isNaN(d.getTime())) return iso;
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
+
+/** Metres between two coordinates (haversine, spherical earth is close enough here). */
+export function distanceMeters(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+): number {
+  const R = 6371000;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.sin(dLon / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  return Math.round(2 * R * Math.asin(Math.sqrt(h)));
+}
+
+export type NearestBranch = {
+  name: string;
+  distance: number;
+  allowedRadius: number;
+  inside: boolean;
+};
+
+/**
+ * Closest office to the current fix, so the punch screen can tell the user how
+ * far off they are *before* they take a selfie the server will reject anyway.
+ * The server remains the authority on whether a punch is allowed; this is only
+ * a heads-up, and returns null when the branch list is empty or unusable.
+ */
+export function nearestBranch(
+  fix: { latitude: number; longitude: number },
+  branches: Array<{ name: string; latitude: string; longitude: string; radius: number }>,
+): NearestBranch | null {
+  let best: NearestBranch | null = null;
+  for (const b of branches) {
+    const latitude = Number(b.latitude);
+    const longitude = Number(b.longitude);
+    if (!isFinite(latitude) || !isFinite(longitude)) continue;
+    const distance = distanceMeters(fix, { latitude, longitude });
+    if (!best || distance < best.distance) {
+      best = { name: b.name, distance, allowedRadius: b.radius, inside: distance <= b.radius };
+    }
+  }
+  return best;
+}
+
+/** 320 -> "320 m", 1240 -> "1.2 km" */
+export function formatDistance(metres: number): string {
+  return metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`;
+}

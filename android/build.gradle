@@ -9,6 +9,10 @@ buildscript {
     classpath('com.android.tools.build:gradle')
     classpath('com.facebook.react:react-native-gradle-plugin')
     classpath('org.jetbrains.kotlin:kotlin-gradle-plugin')
+    // Processes android/app/google-services.json into the Firebase config the
+    // messaging SDK reads at runtime. Harmless when that file is absent — the
+    // plugin is only applied in app/build.gradle if the file exists.
+    classpath('com.google.gms:google-services:4.4.2')
   }
 }
 

@@ -196,3 +196,16 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+// Firebase Cloud Messaging.
+//
+// Applied only when google-services.json is present, for the same reason the
+// release signing config is conditional: a fresh checkout without the file must
+// still build. The plugin hard-fails the build when the JSON is missing, so an
+// unconditional `apply` here would break every build until someone downloads it.
+//
+// Drop the file in from the Firebase console (package com.abs.attendly.app) and
+// push notifications light up on the next build with no other change.
+if (file('google-services.json').exists()) {
+    apply plugin: 'com.google.gms.google-services'
+}
