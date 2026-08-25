@@ -10,6 +10,7 @@ import {
   ViewProps,
 } from "react-native";
 import { colors, radius, spacing, type } from "../theme";
+import { s } from "../lib/responsive";
 
 export function Card({ style, ...rest }: ViewProps) {
   return <View {...rest} style={[styles.card, style]} />;
@@ -79,7 +80,7 @@ export function Field({
       <TextInput
         {...rest}
         placeholderTextColor={colors.muted}
-        style={styles.input}
+        style={[styles.input, rest.style]}
       />
       {hint ? <Muted>{hint}</Muted> : null}
     </View>
@@ -109,7 +110,7 @@ export function Notice({
         : { bg: colors.dangerTint, fg: colors.danger };
   return (
     <View style={[styles.notice, { backgroundColor: palette.bg }]}>
-      <Text style={{ color: palette.fg, ...type.small, lineHeight: 20 }}>{children}</Text>
+      <Text style={{ color: palette.fg, ...type.small, lineHeight: s(20) }}>{children}</Text>
     </View>
   );
 }
@@ -125,13 +126,13 @@ const styles = StyleSheet.create({
   },
   title: { ...type.title, color: colors.ink },
   label: { ...type.label, color: colors.muted },
-  muted: { ...type.small, color: colors.muted, lineHeight: 19 },
+  muted: { ...type.small, color: colors.muted, lineHeight: s(19) },
   button: {
     borderRadius: radius.md,
-    paddingVertical: 15,
+    paddingVertical: s(15),
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 50,
+    minHeight: s(50),
   },
   buttonLabel: { ...type.heading },
   input: {
@@ -139,17 +140,17 @@ const styles = StyleSheet.create({
     borderColor: colors.rule,
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
-    paddingVertical: 14,
-    fontSize: 16,
+    paddingVertical: s(14),
+    fontSize: s(16),
     color: colors.ink,
     backgroundColor: colors.card,
   },
   pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: s(10),
+    paddingVertical: s(4),
     borderRadius: radius.pill,
     alignSelf: "flex-start",
   },
-  pillText: { fontSize: 11, fontWeight: "700", letterSpacing: 0.4 },
+  pillText: { fontSize: s(11), fontWeight: "700", letterSpacing: 0.4 },
   notice: { borderRadius: radius.md, padding: spacing.md },
 });

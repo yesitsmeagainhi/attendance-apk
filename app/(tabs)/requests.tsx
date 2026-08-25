@@ -11,6 +11,7 @@ import {
 } from "../../src/api/client";
 import { Button, Card, Field, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
+import { s } from "../../src/lib/responsive";
 import { formatDate } from "../../src/lib/punch";
 
 type Tab = "leave" | "misspunch";
@@ -294,7 +295,7 @@ function TabButton({ label, active, onPress }: { label: string; active: boolean;
   );
 }
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const cap = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 const today = () => new Date().toISOString().slice(0, 10);
 
 const styles = StyleSheet.create({
@@ -303,7 +304,7 @@ const styles = StyleSheet.create({
   tabs: { flexDirection: "row", gap: spacing.sm },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: s(10),
     borderRadius: radius.md,
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -316,7 +317,7 @@ const styles = StyleSheet.create({
   chips: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   chip: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: 9,
+    paddingVertical: s(9),
     borderRadius: radius.pill,
     backgroundColor: colors.bg,
     borderWidth: 1,
@@ -331,11 +332,11 @@ const styles = StyleSheet.create({
     borderColor: colors.rule,
     borderRadius: radius.md,
     padding: spacing.lg,
-    gap: 5,
+    gap: s(5),
   },
   reqHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   reqTitle: { ...type.heading, color: colors.ink, flexShrink: 1 },
   reqWhen: { ...type.small, color: colors.brand, fontWeight: "600" },
-  reqReason: { ...type.small, color: colors.inkSoft, lineHeight: 19 },
+  reqReason: { ...type.small, color: colors.inkSoft, lineHeight: s(19) },
   reqNote: { ...type.small, color: colors.muted, fontStyle: "italic" },
 });

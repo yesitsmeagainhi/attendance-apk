@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, ApiError, Timesheet, TimesheetDay } from "../../src/api/client";
 import { Card, Label, Muted, Notice, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
+import { s } from "../../src/lib/responsive";
 import { formatDuration, formatTime } from "../../src/lib/punch";
 
 export default function TimesheetScreen() {
@@ -159,12 +160,12 @@ const styles = StyleSheet.create({
   },
   monthLabel: { ...type.heading, color: colors.ink },
   hoursRow: { flexDirection: "row", alignItems: "baseline", gap: spacing.sm },
-  hours: { fontSize: 34, fontWeight: "700", color: colors.brand, fontVariant: ["tabular-nums"] },
+  hours: { fontSize: s(34), fontWeight: "700", color: colors.brand, fontVariant: ["tabular-nums"] },
   hoursUnit: { ...type.small, color: colors.muted },
   statRow: { flexDirection: "row", justifyContent: "space-between" },
-  stat: { alignItems: "center", flex: 1, gap: 2 },
-  statValue: { fontSize: 22, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  statLabel: { ...type.small, color: colors.muted, fontSize: 12 },
+  stat: { alignItems: "center", flex: 1, gap: s(2) },
+  statValue: { fontSize: s(22), fontWeight: "700", fontVariant: ["tabular-nums"] },
+  statLabel: { ...type.small, color: colors.muted, fontSize: s(12) },
   row: {
     flexDirection: "row",
     alignItems: "center",
@@ -176,10 +177,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.md,
   },
-  dayCol: { width: 38, alignItems: "center" },
+  dayCol: { width: s(38), alignItems: "center" },
   dayNum: { ...type.heading, color: colors.ink, fontVariant: ["tabular-nums"] },
-  dayName: { fontSize: 11, color: colors.muted },
-  rowMain: { flex: 1, gap: 2 },
+  dayName: { fontSize: s(11), color: colors.muted },
+  rowMain: { flex: 1, gap: s(2) },
   rowTimes: { ...type.body, color: colors.ink, fontVariant: ["tabular-nums"] },
   rowStatus: { ...type.small, color: colors.muted, textTransform: "capitalize" },
   rowDuration: { ...type.small, color: colors.inkSoft, fontWeight: "600", fontVariant: ["tabular-nums"] },

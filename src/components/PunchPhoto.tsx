@@ -11,6 +11,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../api/client";
 import { colors, radius, spacing, type } from "../theme";
+import { s, vs } from "../lib/responsive";
 
 /**
  * Stored selfies are served by an authenticated endpoint, so the Bearer token
@@ -109,10 +110,10 @@ export function PhotoViewer({
 }
 
 const styles = StyleSheet.create({
-  thumbWrap: { width: 44, height: 56 },
+  thumbWrap: { width: s(44), height: s(56) },
   thumb: {
-    width: 44,
-    height: 56,
+    width: s(44),
+    height: s(56),
     borderRadius: radius.sm,
     backgroundColor: colors.bg,
     borderWidth: 1,
@@ -121,13 +122,13 @@ const styles = StyleSheet.create({
   thumbFallback: { alignItems: "center", justifyContent: "center" },
   thumbTag: {
     position: "absolute",
-    bottom: -4,
+    bottom: s(-4),
     alignSelf: "center",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
+    paddingHorizontal: s(6),
+    paddingVertical: s(1),
     borderRadius: radius.pill,
   },
-  thumbTagText: { fontSize: 9, fontWeight: "700", color: colors.white, letterSpacing: 0.3 },
+  thumbTagText: { fontSize: s(9), fontWeight: "700", color: colors.white, letterSpacing: 0.3 },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.94)",
@@ -135,7 +136,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: spacing.lg,
   },
-  close: { position: "absolute", top: 48, right: spacing.xl, zIndex: 2 },
+  close: { position: "absolute", top: vs(48), right: spacing.xl, zIndex: 2 },
   full: { width: "100%", height: "78%" },
   fullImage: { width: "100%", height: "100%" },
   caption: { ...type.small, color: colors.white, marginTop: spacing.lg, textAlign: "center" },

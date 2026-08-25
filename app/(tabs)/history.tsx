@@ -6,6 +6,7 @@ import { api, ApiError, HistoryRecord, HistoryResponse } from "../../src/api/cli
 import { Card, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { PhotoViewer, PunchThumb } from "../../src/components/PunchPhoto";
 import { colors, radius, spacing, statusColors, type } from "../../src/theme";
+import { s } from "../../src/lib/responsive";
 import { formatDate, formatDuration, formatTime } from "../../src/lib/punch";
 
 type Viewing = { key: string; caption: string } | null;
@@ -139,9 +140,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   list: { padding: spacing.lg, paddingBottom: spacing.xxl },
   statRow: { flexDirection: "row", justifyContent: "space-between" },
-  stat: { alignItems: "center", flex: 1, gap: 2 },
-  statValue: { fontSize: 24, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  statLabel: { ...type.small, color: colors.muted, fontSize: 12 },
+  stat: { alignItems: "center", flex: 1, gap: s(2) },
+  statValue: { fontSize: s(24), fontWeight: "700", fontVariant: ["tabular-nums"] },
+  statLabel: { ...type.small, color: colors.muted, fontSize: s(12) },
   row: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -157,7 +158,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: spacing.md,
   },
-  rowMain: { flex: 1, gap: 3 },
+  rowMain: { flex: 1, gap: s(3) },
   rowDate: { ...type.heading, color: colors.ink },
   rowTimes: { ...type.small, color: colors.muted, fontVariant: ["tabular-nums"] },
   photos: {

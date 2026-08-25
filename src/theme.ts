@@ -1,3 +1,5 @@
+import { s } from "./lib/responsive";
+
 /**
  * Design tokens lifted from the Attendly web app so the native client reads as
  * the same product rather than a lookalike.
@@ -26,29 +28,29 @@ export const colors = {
 } as const;
 
 export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-  xxl: 32,
-} as const;
+  xs: s(4),
+  sm: s(8),
+  md: s(12),
+  lg: s(16),
+  xl: s(24),
+  xxl: s(32),
+};
 
 export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
+  sm: s(8),
+  md: s(12),
+  lg: s(16),
   pill: 999,
-} as const;
+};
 
 export const type = {
-  display: { fontSize: 28, fontWeight: "700" as const, letterSpacing: -0.5 },
-  title: { fontSize: 20, fontWeight: "700" as const, letterSpacing: -0.3 },
-  heading: { fontSize: 16, fontWeight: "600" as const },
-  body: { fontSize: 15, fontWeight: "400" as const },
-  small: { fontSize: 13, fontWeight: "400" as const },
-  label: { fontSize: 11, fontWeight: "600" as const, letterSpacing: 0.8 },
-} as const;
+  display: { fontSize: s(28), fontWeight: "700" as const, letterSpacing: -0.5 },
+  title: { fontSize: s(20), fontWeight: "700" as const, letterSpacing: -0.3 },
+  heading: { fontSize: s(16), fontWeight: "600" as const },
+  body: { fontSize: s(15), fontWeight: "400" as const },
+  small: { fontSize: s(13), fontWeight: "400" as const },
+  label: { fontSize: s(11), fontWeight: "600" as const, letterSpacing: 0.8 },
+};
 
 /** Maps the status strings the history API returns to a colour pair. */
 export function statusColors(status: string): { fg: string; bg: string } {

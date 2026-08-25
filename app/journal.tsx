@@ -14,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, ApiError } from "../src/api/client";
 import { Button, Card, Field, Label, Muted, Notice, Title } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
+import { s } from "../src/lib/responsive";
 
 /**
  * Daily journal: one row per employee per day. POST upserts, so saving twice
@@ -150,12 +151,12 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.sm,
   },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
-  textarea: { minHeight: 110, textAlignVertical: "top" },
+  textarea: { minHeight: s(110), textAlignVertical: "top" },
   todoRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.md,
-    paddingVertical: 6,
+    paddingVertical: s(6),
     borderBottomWidth: 1,
     borderBottomColor: colors.rule,
   },

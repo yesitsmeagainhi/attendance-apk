@@ -1,11 +1,12 @@
 import React, { useCallback, useState } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, ApiError, PunchStatus } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Button, Card, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
+import { s } from "../../src/lib/responsive";
 import { formatTime } from "../../src/lib/punch";
 
 export default function TodayScreen() {
@@ -47,11 +48,7 @@ export default function TodayScreen() {
             <Label>Signed in as</Label>
             <Title>{session?.name || "Employee"}</Title>
           </View>
-          <View style={styles.mark}>
-            <Text style={styles.markText}>
-              {(session?.name || "A").trim().charAt(0).toUpperCase()}
-            </Text>
-          </View>
+          <Image source={require("../../assets/app-icon.jpg")} style={styles.mark} />
         </View>
 
         {error ? <Notice>{error}</Notice> : null}
@@ -85,7 +82,7 @@ export default function TodayScreen() {
           {canPunch ? (
             <>
               <Muted>
-                You'll take a selfie and Attendly will check you're inside an office
+                You'll take a selfie and application will check you're inside an office
                 geo-fence before recording the time.
               </Muted>
               <Button
@@ -142,19 +139,15 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   mark: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: radius.pill,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  markText: { color: colors.white, fontSize: 18, fontWeight: "700" },
   punchRow: { flexDirection: "row", alignItems: "center" },
-  punchCell: { flex: 1, gap: 4 },
+  punchCell: { flex: 1, gap: s(4) },
   divider: { width: 1, alignSelf: "stretch", backgroundColor: colors.rule, marginHorizontal: spacing.md },
   punchLabel: { ...type.small, color: colors.muted },
-  punchTime: { fontSize: 26, fontWeight: "700", color: colors.ink, fontVariant: ["tabular-nums"] },
+  punchTime: { fontSize: s(26), fontWeight: "700", color: colors.ink, fontVariant: ["tabular-nums"] },
   logRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   logTime: { ...type.body, color: colors.ink, fontWeight: "600", fontVariant: ["tabular-nums"] },
   logOffice: { ...type.small, color: colors.muted, flex: 1 },

@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +13,7 @@ import { api, ApiError } from "../src/api/client";
 import { useAuth } from "../src/auth/AuthContext";
 import { Button, Card, Field, Muted, Notice } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
+import { s } from "../src/lib/responsive";
 import { API_BASE_URL, IS_PRODUCTION_TARGET } from "../src/config";
 
 /**
@@ -78,10 +80,8 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.brandRow}>
-            <View style={styles.mark}>
-              <Text style={styles.markText}>A</Text>
-            </View>
-            <Text style={styles.brandName}>Attendly</Text>
+            <Image source={require("../assets/app-icon.jpg")} style={styles.mark} />
+            <Text style={styles.brandName}>ASM Vikas</Text>
           </View>
 
           <Text style={styles.headline}>
@@ -138,7 +138,7 @@ export default function LoginScreen() {
 
           <View style={styles.footer}>
             <Muted>
-              Signing in here signs you out of Attendly in your browser — an account can
+              Signing in here signs you out of ASM Vikas in your browser — an account can
               only be active on one device at a time.
             </Muted>
             <Text style={styles.target}>
@@ -156,16 +156,12 @@ const styles = StyleSheet.create({
   scroll: { padding: spacing.xl, paddingTop: spacing.xxl, flexGrow: 1 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.xxl },
   mark: {
-    width: 44,
-    height: 44,
+    width: s(44),
+    height: s(44),
     borderRadius: radius.md,
-    backgroundColor: colors.brand,
-    alignItems: "center",
-    justifyContent: "center",
   },
-  markText: { color: colors.white, fontSize: 24, fontWeight: "700" },
-  brandName: { ...type.title, color: colors.ink, fontSize: 24 },
+  brandName: { ...type.title, color: colors.ink, fontSize: s(24) },
   headline: { ...type.display, color: colors.ink, marginBottom: spacing.sm },
   footer: { marginTop: "auto", paddingTop: spacing.xxl, gap: spacing.sm },
-  target: { ...type.small, color: colors.muted, fontSize: 11 },
+  target: { ...type.small, color: colors.muted, fontSize: s(11) },
 });
