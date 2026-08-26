@@ -43,7 +43,7 @@ export async function acquireLocation(): Promise<{ latitude: number; longitude: 
 export async function compressPhoto(uri: string): Promise<string> {
   const result = await ImageManipulator.manipulateAsync(
     uri,
-    [{ resize: { width: PHOTO_MAX_WIDTH } }],
+    [{ flip: ImageManipulator.FlipType.Horizontal }, { resize: { width: PHOTO_MAX_WIDTH } }],
     { compress: PHOTO_QUALITY, format: ImageManipulator.SaveFormat.JPEG },
   );
   return result.uri;

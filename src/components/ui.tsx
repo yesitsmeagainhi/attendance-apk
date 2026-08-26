@@ -47,7 +47,7 @@ export function Button({
       ? { bg: colors.brand, fg: colors.white }
       : variant === "danger"
         ? { bg: colors.dangerTint, fg: colors.danger }
-        : { bg: colors.brandTint, fg: colors.brand };
+        : { bg: colors.accentTint, fg: colors.accent };
 
   return (
     <Pressable
@@ -57,7 +57,7 @@ export function Button({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: palette.bg, opacity: isDisabled ? 0.55 : pressed ? 0.88 : 1 },
+        { backgroundColor: palette.bg, opacity: isDisabled ? 0.5 : pressed ? 0.82 : 1 },
       ]}
     >
       {busy ? (
@@ -109,7 +109,7 @@ export function Notice({
         ? { bg: colors.warnTint, fg: colors.warn }
         : { bg: colors.dangerTint, fg: colors.danger };
   return (
-    <View style={[styles.notice, { backgroundColor: palette.bg }]}>
+    <View style={[styles.notice, { backgroundColor: palette.bg, borderLeftColor: palette.fg }]}>
       <Text style={{ color: palette.fg, ...type.small, lineHeight: s(20) }}>{children}</Text>
     </View>
   );
@@ -123,25 +123,30 @@ const styles = StyleSheet.create({
     borderColor: colors.rule,
     padding: spacing.lg,
     gap: spacing.md,
+    shadowColor: "#1A2D62",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 2,
   },
   title: { ...type.title, color: colors.ink },
-  label: { ...type.label, color: colors.muted },
+  label: { ...type.label, color: colors.inkSoft },
   muted: { ...type.small, color: colors.muted, lineHeight: s(19) },
   button: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     paddingVertical: s(15),
     alignItems: "center",
     justifyContent: "center",
-    minHeight: s(50),
+    minHeight: s(52),
   },
-  buttonLabel: { ...type.heading },
+  buttonLabel: { ...type.heading, fontWeight: "700" },
   input: {
     borderWidth: 1,
     borderColor: colors.rule,
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     paddingVertical: s(14),
-    fontSize: s(16),
+    fontSize: s(15),
     color: colors.ink,
     backgroundColor: colors.card,
   },
@@ -152,5 +157,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
   },
   pillText: { fontSize: s(11), fontWeight: "700", letterSpacing: 0.4 },
-  notice: { borderRadius: radius.md, padding: spacing.md },
+  notice: {
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderLeftWidth: 3,
+  },
 });

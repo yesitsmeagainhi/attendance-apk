@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
@@ -79,13 +79,18 @@ export default function LoginScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.brandRow}>
-            <Image source={require("../assets/app-icon.jpg")} style={styles.mark} />
+          {/* Hero — centered logo + brand name */}
+          <View style={styles.hero}>
+            <View style={styles.logoWrap}>
+              <Image source={require("../assets/app-icon.jpg")} style={styles.mark} />
+            </View>
             <Text style={styles.brandName}>ASM Vikas</Text>
+            <Text style={styles.brandSub}>Attendance Management</Text>
           </View>
 
+          {/* Step heading */}
           <Text style={styles.headline}>
-            {step === "mobile" ? "Sign in to mark attendance" : `Hello, ${employee?.name ?? ""}`}
+            {step === "mobile" ? "Sign in to your account" : `Welcome, ${employee?.name ?? ""}`}
           </Text>
           <Muted>
             {step === "mobile"
@@ -153,15 +158,36 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  scroll: { padding: spacing.xl, paddingTop: spacing.xxl, flexGrow: 1 },
-  brandRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, marginBottom: spacing.xxl },
-  mark: {
-    width: s(44),
-    height: s(44),
-    borderRadius: radius.md,
+  scroll: { padding: spacing.xl, paddingTop: spacing.lg, flexGrow: 1 },
+  hero: {
+    alignItems: "center",
+    paddingVertical: spacing.xxl,
   },
-  brandName: { ...type.title, color: colors.ink, fontSize: s(24) },
-  headline: { ...type.display, color: colors.ink, marginBottom: spacing.sm },
+  logoWrap: {
+    borderRadius: radius.lg,
+    overflow: "hidden",
+    shadowColor: "#1A2D62",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+    marginBottom: spacing.lg,
+  },
+  mark: {
+    width: s(80),
+    height: s(80),
+  },
+  brandName: {
+    ...type.display,
+    color: colors.ink,
+    marginBottom: spacing.xs,
+  },
+  brandSub: {
+    ...type.small,
+    color: colors.muted,
+    letterSpacing: 0.5,
+  },
+  headline: { ...type.title, color: colors.ink, marginBottom: spacing.sm },
   footer: { marginTop: "auto", paddingTop: spacing.xxl, gap: spacing.sm },
   target: { ...type.small, color: colors.muted, fontSize: s(11) },
 });

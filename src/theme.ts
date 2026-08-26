@@ -1,21 +1,26 @@
 import { s } from "./lib/responsive";
 
 /**
- * Design tokens lifted from the Attendly web app so the native client reads as
- * the same product rather than a lookalike.
+ * Design tokens derived from the ASM Vikas logo:
+ *   primary  — deep navy  #1A2D62  (the letterforms)
+ *   accent   — teal       #2D8B7A  (the checkmark swoosh on the M)
  */
 export const colors = {
-  brand: "#6D28D9",
-  brandDark: "#2E1065",
-  brandTint: "#F5F3FF",
-  brandBorder: "#DDD6FE",
+  brand: "#1A2D62",
+  brandDark: "#0D1A3D",
+  brandTint: "#EEF1FA",
+  brandBorder: "#C4CEEB",
 
-  bg: "#F7F6FB",
+  accent: "#2D8B7A",
+  accentTint: "#E5F4F1",
+  accentBorder: "#A8D5CE",
+
+  bg: "#F3F5FB",
   card: "#FFFFFF",
-  ink: "#17141F",
-  inkSoft: "#4B4560",
-  muted: "#7A7290",
-  rule: "#E6E1EF",
+  ink: "#0D1A3D",
+  inkSoft: "#354070",
+  muted: "#7882AA",
+  rule: "#DDE3F0",
 
   ok: "#15803D",
   okTint: "#E8F5EC",

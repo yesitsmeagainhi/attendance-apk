@@ -50,7 +50,7 @@ export default function ProfileScreen() {
             <Row label="Office" value={profile.office} />
             <Row label="Shift" value={`${profile.workStartTime} – ${profile.workEndTime}`} />
             <Row label="Mobile" value={profile.mobileNumber || "—"} />
-            <Row label="Email" value={profile.email} />
+            {/* <Row label="Email" value={profile.email} /> */}
           </Card>
         ) : null}
 

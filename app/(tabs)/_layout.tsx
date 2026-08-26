@@ -1,9 +1,40 @@
-import React from "react";
+import { useRef } from "react";
+import { Animated, Pressable } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Haptics from "expo-haptics";
 import { colors } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
+
+/**
+ * Wraps every tab button with:
+ *   1. Light haptic feedback on press
+ *   2. A quick scale-pop on the icon so the press registers visually
+ */
+function HapticTabButton({ children, onPress, style }: any) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  function handlePress(e: any) {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 0.82, duration: 80, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }),
+    ]).start();
+    onPress?.(e);
+  }
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={[style, { flex: 1, alignItems: "center", justifyContent: "center" }]}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 export default function TabsLayout() {
   const { bottom } = useSafeAreaInsets();
@@ -14,14 +45,22 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.brand,
         tabBarInactiveTintColor: colors.muted,
+        tabBarButton: (props) => <HapticTabButton {...props} />,
         tabBarStyle: {
           backgroundColor: colors.card,
           borderTopColor: colors.rule,
+          borderTopWidth: 1,
           height: s(62) + bottom,
           paddingBottom: s(8) + bottom,
           paddingTop: s(6),
+          shadowColor: "#1A2D62",
+          shadowOffset: { width: 0, height: -3 },
+          shadowOpacity: 0.07,
+          shadowRadius: 10,
+          elevation: 10,
         },
-        tabBarLabelStyle: { fontSize: s(11), fontWeight: "600" },
+        tabBarLabelStyle: { fontSize: s(11), fontWeight: "600", letterSpacing: 0.2 },
+        tabBarActiveBackgroundColor: "transparent",
         sceneStyle: { backgroundColor: colors.bg },
       }}
     >
