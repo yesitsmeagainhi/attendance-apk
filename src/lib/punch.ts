@@ -90,6 +90,22 @@ export function formatDuration(minutes: number | null | undefined): string {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+/**
+ * "09:00" -> "9:00 AM"   "18:30" -> "6:30 PM"
+ *
+ * Shift times from the API are plain "HH:MM" strings (24-hour, no timezone).
+ */
+export function formatShiftTime(hhmm: string | null | undefined): string {
+  if (!hhmm) return "--";
+  const [hStr, mStr] = hhmm.split(":");
+  const h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
 /** "2026-08-22" -> "Sat, 22 Aug" */
 export function formatDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");

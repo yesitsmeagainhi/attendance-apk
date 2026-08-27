@@ -1,6 +1,16 @@
-import React, { useCallback, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useState } from "react";
+import {
+  Modal,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import {
   api,
@@ -9,15 +19,18 @@ import {
   MissPunchRequest,
   RequestStatus,
 } from "../../src/api/client";
-import { Button, Card, Field, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
+import { Button, Card, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
 import { formatDate } from "../../src/lib/punch";
 
 type Tab = "leave" | "misspunch";
 const LEAVE_TYPES = ["sick", "casual", "earned"] as const;
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DAY_LABELS = ["S","M","T","W","T","F","S"];
 
-/** Leave and miss-punch both follow the same raise-then-admin-approves shape. */
+// ─── Screen ────────────────────────────────────────────────────────────────────
+
 export default function RequestsScreen() {
   const [tab, setTab] = useState<Tab>("leave");
   const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
@@ -40,9 +53,7 @@ export default function RequestsScreen() {
   }, []);
 
   useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
+    useCallback(() => { load(); }, [load]),
   );
 
   return (
@@ -63,21 +74,9 @@ export default function RequestsScreen() {
 
         {composing ? (
           tab === "leave" ? (
-            <LeaveForm
-              onDone={() => {
-                setComposing(false);
-                load();
-              }}
-              onCancel={() => setComposing(false)}
-            />
+            <LeaveForm onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
           ) : (
-            <MissPunchForm
-              onDone={() => {
-                setComposing(false);
-                load();
-              }}
-              onCancel={() => setComposing(false)}
-            />
+            <MissPunchForm onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
           )
         ) : (
           <Button
@@ -92,42 +91,36 @@ export default function RequestsScreen() {
               <RequestRow
                 key={r.id}
                 title={`${cap(r.leaveType)} leave`}
-                when={
-                  r.fromDate === r.toDate
-                    ? formatDate(r.fromDate)
-                    : `${formatDate(r.fromDate)} – ${formatDate(r.toDate)}`
-                }
+                when={r.fromDate === r.toDate ? formatDate(r.fromDate) : `${formatDate(r.fromDate)} – ${formatDate(r.toDate)}`}
                 reason={r.reason}
                 status={r.status}
                 note={r.adminNote}
               />
             ))
-          ) : loading ? null : (
-            <Muted>No leave requests yet.</Muted>
-          )
+          ) : loading ? null : <Muted>No leave requests yet.</Muted>
         ) : missPunches.length ? (
           missPunches.map((r) => (
             <RequestRow
               key={r.id}
               title={`Missed punch ${r.punchType}`}
-              when={`${formatDate(r.date)} at ${r.requestedTime}`}
+              when={`${formatDate(r.date)} at ${formatTime12(r.requestedTime)}`}
               reason={r.reason}
               status={r.status}
               note={r.adminNote}
             />
           ))
-        ) : loading ? null : (
-          <Muted>No miss-punch requests yet.</Muted>
-        )}
+        ) : loading ? null : <Muted>No miss-punch requests yet.</Muted>}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ─── Leave form ────────────────────────────────────────────────────────────────
+
 function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [leaveType, setLeaveType] = useState<(typeof LEAVE_TYPES)[number]>("casual");
-  const [fromDate, setFromDate] = useState(today());
-  const [toDate, setToDate] = useState(today());
+  const [fromDate, setFromDate] = useState(todayDate());
+  const [toDate, setToDate] = useState(todayDate());
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -140,7 +133,7 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
     }
     setBusy(true);
     try {
-      await api.createLeave({ leaveType, fromDate, toDate, reason: reason.trim() });
+      await api.createLeave({ leaveType, fromDate: toYMD(fromDate), toDate: toYMD(toDate), reason: reason.trim() });
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't submit the request.");
@@ -166,15 +159,25 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
         ))}
       </View>
 
-      <Field label="From (YYYY-MM-DD)" value={fromDate} onChangeText={setFromDate} placeholder="2026-08-25" />
-      <Field label="To (YYYY-MM-DD)" value={toDate} onChangeText={setToDate} placeholder="2026-08-26" />
-      <Field
-        label="Reason"
-        value={reason}
-        onChangeText={setReason}
-        placeholder="Fever, advised rest"
-        multiline
+      <DateField
+        label="From"
+        value={fromDate}
+        maximumDate={toDate}
+        onChange={(d) => { setFromDate(d); if (d > toDate) setToDate(d); }}
       />
+      <DateField label="To" value={toDate} minimumDate={fromDate} onChange={setToDate} />
+
+      <View style={styles.fieldWrap}>
+        <Label>Reason</Label>
+        <TextInput
+          value={reason}
+          onChangeText={setReason}
+          placeholder="Fever, advised rest"
+          placeholderTextColor={colors.muted}
+          multiline
+          style={[styles.input, { minHeight: s(80), textAlignVertical: "top" }]}
+        />
+      </View>
 
       {error ? <Notice>{error}</Notice> : null}
       <Button label="Submit request" onPress={submit} busy={busy} />
@@ -183,28 +186,25 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
   );
 }
 
+// ─── Miss-punch form ───────────────────────────────────────────────────────────
+
 function MissPunchForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(todayDate());
   const [punchType, setPunchType] = useState<"IN" | "OUT">("OUT");
-  const [requestedTime, setRequestedTime] = useState("18:30");
+  const [time, setTime] = useState(() => { const d = new Date(); d.setHours(18, 30, 0, 0); return d; });
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     setError(null);
-    // The server enforces both of these; checking here avoids a pointless round trip.
     if (reason.trim().length < 5) {
       setError("The reason needs at least 5 characters.");
       return;
     }
-    if (!/^\d{2}:\d{2}$/.test(requestedTime)) {
-      setError("Time must look like 18:30.");
-      return;
-    }
     setBusy(true);
     try {
-      await api.createMissPunch({ date, punchType, requestedTime, reason: reason.trim() });
+      await api.createMissPunch({ date: toYMD(date), punchType, requestedTime: toHHMM(time), reason: reason.trim() });
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't submit the request.");
@@ -225,22 +225,25 @@ function MissPunchForm({ onDone, onCancel }: { onDone: () => void; onCancel: () 
             accessibilityState={{ selected: punchType === t }}
             style={[styles.chip, punchType === t && styles.chipOn]}
           >
-            <Text style={[styles.chipText, punchType === t && styles.chipTextOn]}>
-              Punch {t.toLowerCase()}
-            </Text>
+            <Text style={[styles.chipText, punchType === t && styles.chipTextOn]}>Punch {t.toLowerCase()}</Text>
           </Pressable>
         ))}
       </View>
 
-      <Field label="Date (YYYY-MM-DD)" value={date} onChangeText={setDate} hint="Cannot be in the future." />
-      <Field label="Time (HH:MM)" value={requestedTime} onChangeText={setRequestedTime} placeholder="18:30" />
-      <Field
-        label="Reason"
-        value={reason}
-        onChangeText={setReason}
-        placeholder="Phone battery died before punch out"
-        multiline
-      />
+      <DateField label="Date" value={date} maximumDate={todayDate()} onChange={setDate} />
+      <TimeField label="Time" value={time} onChange={setTime} />
+
+      <View style={styles.fieldWrap}>
+        <Label>Reason</Label>
+        <TextInput
+          value={reason}
+          onChangeText={setReason}
+          placeholder="Phone battery died before punch out"
+          placeholderTextColor={colors.muted}
+          multiline
+          style={[styles.input, { minHeight: s(80), textAlignVertical: "top" }]}
+        />
+      </View>
 
       {error ? <Notice>{error}</Notice> : null}
       <Button label="Submit request" onPress={submit} busy={busy} />
@@ -249,25 +252,264 @@ function MissPunchForm({ onDone, onCancel }: { onDone: () => void; onCancel: () 
   );
 }
 
-function RequestRow({
-  title,
-  when,
-  reason,
-  status,
-  note,
+// ─── Date field + calendar modal ───────────────────────────────────────────────
+
+function DateField({
+  label, value, onChange, minimumDate, maximumDate,
 }: {
-  title: string;
-  when: string;
-  reason: string;
-  status: RequestStatus;
-  note: string | null;
+  label: string; value: Date; onChange: (d: Date) => void; minimumDate?: Date; maximumDate?: Date;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.fieldWrap}>
+      <Label>{label}</Label>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [styles.pickerRow, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons name="calendar-outline" size={s(18)} color={colors.brand} />
+        <Text style={styles.pickerValue}>{formatDate(toYMD(value))}</Text>
+        <Ionicons name="chevron-down" size={s(16)} color={colors.muted} />
+      </Pressable>
+      <CalendarModal
+        visible={open}
+        value={value}
+        onConfirm={(d) => { onChange(d); setOpen(false); }}
+        onDismiss={() => setOpen(false)}
+        minimumDate={minimumDate}
+        maximumDate={maximumDate}
+      />
+    </View>
+  );
+}
+
+// ─── Time field + time modal ───────────────────────────────────────────────────
+
+function TimeField({
+  label, value, onChange,
+}: {
+  label: string; value: Date; onChange: (d: Date) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.fieldWrap}>
+      <Label>{label}</Label>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [styles.pickerRow, pressed && { opacity: 0.7 }]}
+      >
+        <Ionicons name="time-outline" size={s(18)} color={colors.brand} />
+        <Text style={styles.pickerValue}>{formatTime12(toHHMM(value))}</Text>
+        <Ionicons name="chevron-down" size={s(16)} color={colors.muted} />
+      </Pressable>
+      <TimeModal
+        visible={open}
+        value={value}
+        onConfirm={(d) => { onChange(d); setOpen(false); }}
+        onDismiss={() => setOpen(false)}
+      />
+    </View>
+  );
+}
+
+// ─── Calendar modal ────────────────────────────────────────────────────────────
+
+function CalendarModal({
+  visible, value, onConfirm, onDismiss, minimumDate, maximumDate,
+}: {
+  visible: boolean; value: Date; onConfirm: (d: Date) => void; onDismiss: () => void;
+  minimumDate?: Date; maximumDate?: Date;
+}) {
+  const [viewYear, setViewYear] = useState(value.getFullYear());
+  const [viewMonth, setViewMonth] = useState(value.getMonth());
+
+  function prevMonth() {
+    if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
+    else setViewMonth((m) => m - 1);
+  }
+  function nextMonth() {
+    if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
+    else setViewMonth((m) => m + 1);
+  }
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const firstDow = new Date(viewYear, viewMonth, 1).getDay();
+
+  const cells: (number | null)[] = [
+    ...Array(firstDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+  while (cells.length % 7 !== 0) cells.push(null);
+  const rows: (number | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) rows.push(cells.slice(i, i + 7));
+
+  const todayMidnight = todayDate();
+  const selectedMidnight = new Date(value); selectedMidnight.setHours(0, 0, 0, 0);
+
+  function pickDay(day: number) {
+    const d = new Date(viewYear, viewMonth, day, 0, 0, 0, 0);
+    if (minimumDate && d < minimumDate) return;
+    if (maximumDate && d > maximumDate) return;
+    onConfirm(d);
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <Pressable style={calStyles.overlay} onPress={onDismiss}>
+        <View style={calStyles.box}>
+          {/* Month navigation */}
+          <View style={calStyles.navRow}>
+            <Pressable onPress={prevMonth} hitSlop={12} style={calStyles.navBtn}>
+              <Ionicons name="chevron-back" size={s(22)} color={colors.brand} />
+            </Pressable>
+            <Text style={calStyles.monthLabel}>{MONTH_NAMES[viewMonth]} {viewYear}</Text>
+            <Pressable onPress={nextMonth} hitSlop={12} style={calStyles.navBtn}>
+              <Ionicons name="chevron-forward" size={s(22)} color={colors.brand} />
+            </Pressable>
+          </View>
+
+          {/* Weekday headers */}
+          <View style={calStyles.weekRow}>
+            {DAY_LABELS.map((d, i) => (
+              <Text key={i} style={calStyles.weekLabel}>{d}</Text>
+            ))}
+          </View>
+
+          {/* Day grid */}
+          {rows.map((row, ri) => (
+            <View key={ri} style={calStyles.weekRow}>
+              {row.map((day, ci) => {
+                if (!day) return <View key={ci} style={calStyles.cell} />;
+                const cellDate = new Date(viewYear, viewMonth, day, 0, 0, 0, 0);
+                const isSelected = cellDate.getTime() === selectedMidnight.getTime();
+                const isToday = cellDate.getTime() === todayMidnight.getTime();
+                const disabled =
+                  (minimumDate != null && cellDate < minimumDate) ||
+                  (maximumDate != null && cellDate > maximumDate);
+                return (
+                  <Pressable
+                    key={ci}
+                    onPress={() => pickDay(day)}
+                    disabled={disabled}
+                    style={[calStyles.cell, isSelected && calStyles.cellSelected]}
+                  >
+                    <Text style={[
+                      calStyles.dayText,
+                      isToday && !isSelected && calStyles.dayToday,
+                      isSelected && calStyles.daySelectedText,
+                      disabled && calStyles.dayDisabled,
+                    ]}>
+                      {day}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          ))}
+
+          <Pressable onPress={onDismiss} style={calStyles.cancelRow}>
+            <Text style={calStyles.cancelText}>Cancel</Text>
+          </Pressable>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ─── Time modal ────────────────────────────────────────────────────────────────
+
+function TimeModal({
+  visible, value, onConfirm, onDismiss,
+}: {
+  visible: boolean; value: Date; onConfirm: (d: Date) => void; onDismiss: () => void;
+}) {
+  const rawH = value.getHours();
+  const [hour12, setHour12] = useState(rawH % 12 || 12);
+  const [minute, setMinute] = useState(value.getMinutes());
+  const [ampm, setAmpm] = useState<"AM" | "PM">(rawH < 12 ? "AM" : "PM");
+
+  function adjustHour(dir: 1 | -1) {
+    setHour12((h) => ((h - 1 + dir + 12) % 12) + 1);
+  }
+  function adjustMinute(dir: 1 | -1) {
+    setMinute((m) => (m + dir * 5 + 60) % 60);
+  }
+
+  function confirm() {
+    const h24 = ampm === "AM" ? (hour12 === 12 ? 0 : hour12) : (hour12 === 12 ? 12 : hour12 + 12);
+    const d = new Date(value);
+    d.setHours(h24, minute, 0, 0);
+    onConfirm(d);
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDismiss}>
+      <Pressable style={calStyles.overlay} onPress={onDismiss}>
+        <View style={calStyles.box}>
+          <Text style={calStyles.monthLabel}>Select time</Text>
+
+          <View style={timeStyles.clockRow}>
+            {/* Hours */}
+            <View style={timeStyles.column}>
+              <Pressable onPress={() => adjustHour(1)} hitSlop={12}>
+                <Ionicons name="chevron-up" size={s(26)} color={colors.brand} />
+              </Pressable>
+              <Text style={timeStyles.digit}>{String(hour12).padStart(2, "0")}</Text>
+              <Pressable onPress={() => adjustHour(-1)} hitSlop={12}>
+                <Ionicons name="chevron-down" size={s(26)} color={colors.brand} />
+              </Pressable>
+            </View>
+
+            <Text style={timeStyles.colon}>:</Text>
+
+            {/* Minutes */}
+            <View style={timeStyles.column}>
+              <Pressable onPress={() => adjustMinute(1)} hitSlop={12}>
+                <Ionicons name="chevron-up" size={s(26)} color={colors.brand} />
+              </Pressable>
+              <Text style={timeStyles.digit}>{String(minute).padStart(2, "0")}</Text>
+              <Pressable onPress={() => adjustMinute(-1)} hitSlop={12}>
+                <Ionicons name="chevron-down" size={s(26)} color={colors.brand} />
+              </Pressable>
+            </View>
+
+            {/* AM / PM */}
+            <View style={timeStyles.ampmCol}>
+              {(["AM", "PM"] as const).map((p) => (
+                <Pressable
+                  key={p}
+                  onPress={() => setAmpm(p)}
+                  style={[timeStyles.ampmBtn, ampm === p && timeStyles.ampmBtnOn]}
+                >
+                  <Text style={[timeStyles.ampmText, ampm === p && timeStyles.ampmTextOn]}>{p}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={timeStyles.actionRow}>
+            <Pressable onPress={onDismiss} style={timeStyles.btn}>
+              <Text style={timeStyles.btnCancel}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={confirm} style={[timeStyles.btn, timeStyles.btnOk]}>
+              <Text style={timeStyles.btnOkText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ─── Request list row ──────────────────────────────────────────────────────────
+
+function RequestRow({ title, when, reason, status, note }: {
+  title: string; when: string; reason: string; status: RequestStatus; note: string | null;
 }) {
   const palette =
-    status === "approved"
-      ? { fg: colors.ok, bg: colors.okTint }
-      : status === "rejected"
-        ? { fg: colors.danger, bg: colors.dangerTint }
-        : { fg: colors.warn, bg: colors.warnTint };
+    status === "approved" ? { fg: colors.ok, bg: colors.okTint } :
+    status === "rejected" ? { fg: colors.danger, bg: colors.dangerTint } :
+    { fg: colors.warn, bg: colors.warnTint };
 
   return (
     <View style={styles.reqRow}>
@@ -295,48 +537,131 @@ function TabButton({ label, active, onPress }: { label: string; active: boolean;
   );
 }
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+function todayDate(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function toYMD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function toHHMM(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatTime12(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (isNaN(h) || isNaN(m)) return hhmm;
+  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+}
+
 const cap = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
-const today = () => new Date().toISOString().slice(0, 10);
+
+// ─── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+
   tabs: { flexDirection: "row", gap: spacing.sm },
   tab: {
-    flex: 1,
-    paddingVertical: s(10),
-    borderRadius: radius.md,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.rule,
-    alignItems: "center",
+    flex: 1, paddingVertical: s(10), borderRadius: radius.md,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.rule, alignItems: "center",
   },
   tabOn: { backgroundColor: colors.brandTint, borderColor: colors.brandBorder },
   tabText: { ...type.small, color: colors.muted, fontWeight: "600" },
   tabTextOn: { color: colors.brand },
+
   chips: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
   chip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: s(9),
-    borderRadius: radius.pill,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.rule,
+    paddingHorizontal: spacing.lg, paddingVertical: s(9),
+    borderRadius: radius.pill, backgroundColor: colors.bg,
+    borderWidth: 1, borderColor: colors.rule,
   },
   chipOn: { backgroundColor: colors.brand, borderColor: colors.brand },
   chipText: { ...type.small, color: colors.inkSoft, fontWeight: "600" },
   chipTextOn: { color: colors.white },
-  reqRow: {
+
+  fieldWrap: { gap: spacing.sm },
+  pickerRow: {
+    flexDirection: "row", alignItems: "center", gap: spacing.md,
+    borderWidth: 1, borderColor: colors.rule, borderRadius: radius.md,
+    paddingHorizontal: spacing.lg, paddingVertical: s(14),
     backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.rule,
-    borderRadius: radius.md,
-    padding: spacing.lg,
-    gap: s(5),
+  },
+  pickerValue: { flex: 1, fontSize: s(15), color: colors.ink, fontWeight: "600" },
+  input: {
+    borderWidth: 1, borderColor: colors.rule, borderRadius: radius.md,
+    paddingHorizontal: spacing.lg, paddingVertical: s(14),
+    fontSize: s(15), color: colors.ink, backgroundColor: colors.card,
+  },
+
+  reqRow: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.rule,
+    borderRadius: radius.md, padding: spacing.lg, gap: s(5),
   },
   reqHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   reqTitle: { ...type.heading, color: colors.ink, flexShrink: 1 },
   reqWhen: { ...type.small, color: colors.brand, fontWeight: "600" },
   reqReason: { ...type.small, color: colors.inkSoft, lineHeight: s(19) },
   reqNote: { ...type.small, color: colors.muted, fontStyle: "italic" },
+});
+
+const calStyles = StyleSheet.create({
+  overlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center", alignItems: "center", padding: spacing.lg,
+  },
+  box: {
+    backgroundColor: colors.card, borderRadius: radius.lg,
+    padding: spacing.lg, width: "100%", maxWidth: s(340),
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18, shadowRadius: 20, elevation: 10,
+  },
+  navRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.md },
+  navBtn: { padding: s(4) },
+  monthLabel: { ...type.heading, color: colors.ink, fontWeight: "700" },
+  weekRow: { flexDirection: "row", marginBottom: s(2) },
+  weekLabel: { flex: 1, textAlign: "center", ...type.small, color: colors.muted, fontWeight: "600", paddingVertical: s(6) },
+  cell: { flex: 1, aspectRatio: 1, alignItems: "center", justifyContent: "center", borderRadius: s(22), margin: s(1) },
+  cellSelected: { backgroundColor: colors.brand },
+  dayText: { ...type.body, color: colors.ink },
+  dayToday: { color: colors.accent, fontWeight: "700" },
+  daySelectedText: { color: colors.white, fontWeight: "700" },
+  dayDisabled: { color: colors.rule },
+  cancelRow: { marginTop: spacing.md, alignItems: "center", paddingVertical: s(6) },
+  cancelText: { ...type.body, color: colors.muted },
+});
+
+const timeStyles = StyleSheet.create({
+  clockRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: spacing.xl ?? spacing.lg, marginVertical: spacing.lg,
+  },
+  column: { alignItems: "center", gap: spacing.sm },
+  digit: {
+    fontSize: s(48), fontWeight: "700", color: colors.ink,
+    fontVariant: ["tabular-nums"], minWidth: s(62), textAlign: "center",
+  },
+  colon: { fontSize: s(40), fontWeight: "700", color: colors.ink, marginBottom: s(6) },
+  ampmCol: { gap: spacing.sm },
+  ampmBtn: {
+    paddingHorizontal: spacing.md, paddingVertical: s(10),
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.rule,
+  },
+  ampmBtnOn: { backgroundColor: colors.brand, borderColor: colors.brand },
+  ampmText: { ...type.small, color: colors.inkSoft, fontWeight: "600" },
+  ampmTextOn: { color: colors.white },
+  actionRow: { flexDirection: "row", gap: spacing.md, marginTop: spacing.sm },
+  btn: {
+    flex: 1, paddingVertical: s(13), alignItems: "center",
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.rule,
+  },
+  btnOk: { backgroundColor: colors.brand, borderColor: colors.brand },
+  btnCancel: { ...type.body, color: colors.muted, fontWeight: "600" },
+  btnOkText: { ...type.body, color: colors.white, fontWeight: "700" },
 });

@@ -1,4 +1,4 @@
-import { File } from "expo-file-system";
+import { File, readAsStringAsync, EncodingType } from "expo-file-system";
 import { API_BASE_URL } from "../config";
 
 /**
@@ -111,7 +111,43 @@ export const api = {
 
   branches: (): Promise<{ branches: Branch[] }> => getJson("/api/branches/active"),
 
-  profile: (): Promise<{ profile: Profile }> => getJson("/api/employee/profile"),
+  profile: async (): Promise<{ profile: Profile }> => {
+    const data = await getJson("/api/employee/profile");
+    if (data?.profile?.photoUrl) {
+      data.profile.photoUrl = `${API_BASE_URL}${data.profile.photoUrl}`;
+    }
+    return data;
+  },
+
+  /**
+   * Upload a new profile photo. Follows the same multipart pattern as punch.
+   * Server should store the image and return the public URL.
+   */
+  uploadProfilePhoto: async (uri: string): Promise<{ photoUrl: string }> => {
+    const photoUri = uri.startsWith("file://") ? uri : `file://${uri}`;
+
+    // Read the file into memory before sending. Streaming expo-file-system's
+    // File lazily through FormData triggers an OkHttp3 HTTP/2 stream-reset
+    // ("stream was reset: NO_ERROR") on Android. Reading eagerly avoids it.
+    const base64 = await readAsStringAsync(photoUri, { encoding: EncodingType.Base64 });
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "image/jpeg" });
+
+    const form = new FormData();
+    form.append("photo", blob, "avatar.jpg");
+    const data = await request("/api/employee/profile/photo", {
+      method: "POST",
+      headers: headers(),
+      body: form,
+    });
+    // Server returns a relative path; make it absolute and bust the HTTP cache
+    // so the new photo is fetched immediately even if the old one was cached.
+    return { photoUrl: `${API_BASE_URL}${data.photoUrl}?t=${Date.now()}` };
+  },
+
+  /** Remove the profile photo from the server. */
+  removeProfilePhoto: () =>
+    request("/api/employee/profile/photo", { method: "DELETE", headers: headers() }),
 
   /**
    * The punch endpoint takes multipart form data, not JSON, and rejects a photo
@@ -290,4 +326,6 @@ export type Profile = {
   office: string;
   role: string;
   createdAt: string;
+  /** Set by the server after a successful photo upload. */
+  photoUrl?: string | null;
 };

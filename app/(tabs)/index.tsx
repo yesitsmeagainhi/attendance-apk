@@ -7,7 +7,7 @@ import { useAuth } from "../../src/auth/AuthContext";
 import { Button, Card, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
-import { formatTime } from "../../src/lib/punch";
+import { formatTime, formatShiftTime } from "../../src/lib/punch";
 
 export default function TodayScreen() {
   const { session } = useAuth();
@@ -72,7 +72,7 @@ export default function TodayScreen() {
           ) : null}
 
           <Muted>
-            Shift {status?.workStartTime ?? "--"} to {status?.workEndTime ?? "--"}
+            Shift {formatShiftTime(status?.workStartTime)} to {formatShiftTime(status?.workEndTime)}
             {status?.flexibleHours ? " · flexible hours" : ""}
           </Muted>
         </Card>
