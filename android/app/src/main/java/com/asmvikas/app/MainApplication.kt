@@ -1,4 +1,4 @@
-package com.abs.attendly.app
+package com.asmvikas.app
 
 import android.app.Application
 import android.content.res.Configuration

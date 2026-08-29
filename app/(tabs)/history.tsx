@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
@@ -34,6 +34,8 @@ export default function HistoryScreen() {
     }, [load]),
   );
 
+  const isFlex = !!data?.isFlexible;
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <FlatList
@@ -58,7 +60,7 @@ export default function HistoryScreen() {
             ) : null}
           </View>
         }
-        renderItem={({ item }) => <Row record={item} onViewPhoto={setViewing} />}
+        renderItem={({ item }) => <Row record={item} isFlex={isFlex} onViewPhoto={setViewing} />}
         ListEmptyComponent={loading ? null : <Muted>No attendance records yet.</Muted>}
       />
 
@@ -82,26 +84,53 @@ function Stat({ value, label, tone }: { value: number; label: string; tone: stri
 
 function Row({
   record,
+  isFlex,
   onViewPhoto,
 }: {
   record: HistoryRecord;
+  isFlex: boolean;
   onViewPhoto: (v: Viewing) => void;
 }) {
   const sc = statusColors(record.status);
   const hasPhotos = !!(record.photoKeyIn || record.photoKeyOut);
+  const sessions = record.sessions;
+  const showSessions = isFlex && sessions && sessions.length > 0;
 
   return (
     <View style={styles.row}>
       <View style={styles.rowTop}>
         <View style={styles.rowMain}>
           <Text style={styles.rowDate}>{formatDate(record.date)}</Text>
-          <Text style={styles.rowTimes}>
-            {formatTime(record.punchInTime)} — {formatTime(record.punchOutTime)}
-            {record.duration ? `  ·  ${formatDuration(record.duration)}` : ""}
-          </Text>
+          {showSessions ? (
+            <Text style={styles.rowTimes}>
+              {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+              {record.duration ? `  ·  ${formatDuration(record.duration)} total` : ""}
+            </Text>
+          ) : (
+            <Text style={styles.rowTimes}>
+              {formatTime(record.punchInTime)} — {formatTime(record.punchOutTime)}
+              {record.duration ? `  ·  ${formatDuration(record.duration)}` : ""}
+            </Text>
+          )}
         </View>
         <Pill text={record.status} fg={sc.fg} bg={sc.bg} />
       </View>
+
+      {showSessions ? (
+        <View style={styles.sessionsBlock}>
+          {sessions.map((ses, i) => (
+            <View key={i} style={styles.sessionLine}>
+              <Text style={styles.sessionLabel}>S{i + 1}</Text>
+              <Text style={styles.sessionTimes}>
+                {formatTime(ses.inTime)} — {ses.outTime ? formatTime(ses.outTime) : "ongoing"}
+              </Text>
+              <Text style={styles.sessionDur}>
+                {ses.durationMinutes != null ? formatDuration(ses.durationMinutes) : "—"}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
 
       {hasPhotos ? (
         <View style={styles.photos}>
@@ -168,4 +197,28 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   office: { ...type.small, color: colors.muted, flex: 1, textAlign: "right" },
+  // Session breakdown styles (flex users)
+  sessionsBlock: { gap: spacing.xs },
+  sessionLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  sessionLabel: {
+    ...type.label,
+    color: colors.accent,
+    width: s(22),
+  },
+  sessionTimes: {
+    ...type.small,
+    color: colors.ink,
+    fontVariant: ["tabular-nums"],
+    flex: 1,
+  },
+  sessionDur: {
+    ...type.small,
+    color: colors.inkSoft,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
 });

@@ -461,13 +461,13 @@
 // });
 
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { api, ApiError } from "../src/api/client";
+import { api, ApiError, Branch } from "../src/api/client";
 import { acquireLocation, compressPhoto, PunchPrepError } from "../src/lib/punch";
 import { Button, Notice } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
@@ -478,6 +478,14 @@ type LocState =
   | { kind: "failed"; message: string };
 
 type Phase = "capture" | "review" | "done";
+
+/** Nearest-branch result after client-side distance check. */
+type GeoCheck =
+  | { inRange: true; branchName: string; distance: number; allowed: number }
+  | { inRange: false; branchName: string; distance: number; allowed: number }
+  | null; // branches not loaded yet
+
+const AUTO_REFRESH_MS = 10_000; // re-check location every 10s
 
 /**
  * Punch capture, in two steps: frame and shoot, then confirm before it is
@@ -490,8 +498,9 @@ type Phase = "capture" | "review" | "done";
  */
 export default function PunchScreen() {
   const router = useRouter();
-  const { type } = useLocalSearchParams<{ type: "IN" | "OUT" }>();
+  const { type, sessionNumber } = useLocalSearchParams<{ type: "IN" | "OUT"; sessionNumber?: string }>();
   const punchType: "IN" | "OUT" = type === "OUT" ? "OUT" : "IN";
+  const sessionNum = sessionNumber ? parseInt(sessionNumber, 10) : undefined;
   const actionLabel = punchType === "IN" ? "punch in" : "punch out";
 
   const [permission, requestPermission] = useCameraPermissions();
@@ -503,6 +512,23 @@ export default function PunchScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [geoAlert, setGeoAlert] = useState<ApiError["geoAlert"]>(null);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [geoCheck, setGeoCheck] = useState<GeoCheck>(null);
+
+  // ── Fetch branches on mount ──
+  useEffect(() => {
+    api.branches().then((r) => setBranches(r.branches)).catch(() => {});
+  }, []);
+
+  // ── Recompute distance whenever location or branches change ──
+  useEffect(() => {
+    if (loc.kind !== "ready" || branches.length === 0) {
+      setGeoCheck(null);
+      return;
+    }
+    const nearest = findNearest(loc.latitude, loc.longitude, branches);
+    setGeoCheck(nearest);
+  }, [loc, branches]);
 
   const refreshLocation = useCallback(async () => {
     setLoc({ kind: "pending" });
@@ -518,6 +544,7 @@ export default function PunchScreen() {
     }
   }, []);
 
+  // ── Initial location fix ──
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -533,10 +560,24 @@ export default function PunchScreen() {
         }
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
+
+  // ── Auto-refresh location every 10s while not done ──
+  useEffect(() => {
+    if (phase === "done") return;
+    const id = setInterval(async () => {
+      try {
+        const fix = await acquireLocation();
+        setLoc({ kind: "ready", ...fix });
+      } catch {
+        // keep previous location if refresh fails silently
+      }
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  const outOfRange = geoCheck !== null && !geoCheck.inRange;
 
   async function onCapture() {
     if (busy) return;
@@ -566,6 +607,7 @@ export default function PunchScreen() {
         punchType,
         latitude: loc.latitude,
         longitude: loc.longitude,
+        sessionNumber: sessionNum ?? 0,
       });
       setPhase("done");
       setTimeout(() => router.back(), 1100);
@@ -629,7 +671,13 @@ export default function PunchScreen() {
             <Ionicons name={phase === "review" ? "arrow-back" : "close"} size={28} color={colors.white} />
           </Pressable>
           <Text style={styles.topTitle}>
-            {phase === "review" ? "Check your photo" : punchType === "IN" ? "Punch in" : "Punch out"}
+            {phase === "review"
+              ? "Check your photo"
+              : sessionNum
+                ? `Session ${sessionNum} — ${punchType === "IN" ? "Punch in" : "Punch out"}`
+                : punchType === "IN"
+                  ? "Punch in"
+                  : "Punch out"}
           </Text>
           <View style={{ width: 28 }} />
         </View>
@@ -641,12 +689,28 @@ export default function PunchScreen() {
             <View style={styles.statusChip}>
               <Ionicons name="checkmark-circle" size={18} color={colors.ok} />
               <Text style={[styles.statusText, { color: colors.ok }]}>
-                Punched {punchType === "IN" ? "in" : "out"}
+                Punched {punchType === "IN" ? "in" : "out"}{geoCheck?.branchName ? ` at ${geoCheck.branchName}` : ""}
               </Text>
             </View>
           ) : (
             <LocationRow state={loc} onRefresh={refreshLocation} />
           )}
+
+          {/* Distance status chip */}
+          {geoCheck && phase !== "done" ? (
+            <View style={[styles.distanceChip, geoCheck.inRange ? styles.distanceOk : styles.distanceFar]}>
+              <Ionicons
+                name={geoCheck.inRange ? "checkmark-circle" : "warning"}
+                size={16}
+                color={geoCheck.inRange ? colors.ok : colors.danger}
+              />
+              <Text style={[styles.distanceText, { color: geoCheck.inRange ? colors.ok : colors.danger }]}>
+                {geoCheck.inRange
+                  ? `${geoCheck.distance}m from ${geoCheck.branchName} (within ${geoCheck.allowed}m)`
+                  : `${geoCheck.distance}m from ${geoCheck.branchName} — move within ${geoCheck.allowed}m to punch`}
+              </Text>
+            </View>
+          ) : null}
 
           {loc.kind === "failed" && phase !== "done" ? (
             <View style={styles.wide}>
@@ -668,10 +732,13 @@ export default function PunchScreen() {
           {phase === "capture" ? (
             <Pressable
               onPress={onCapture}
-              disabled={busy}
+              disabled={busy || outOfRange}
               accessibilityRole="button"
               accessibilityLabel={`Take your ${actionLabel} photo`}
-              style={({ pressed }) => [styles.shutter, { opacity: busy ? 0.5 : pressed ? 0.85 : 1 }]}
+              style={({ pressed }) => [
+                styles.shutter,
+                { opacity: busy || outOfRange ? 0.35 : pressed ? 0.85 : 1 },
+              ]}
             >
               {busy ? <ActivityIndicator color={colors.brand} /> : <View style={styles.shutterInner} />}
             </Pressable>
@@ -685,7 +752,7 @@ export default function PunchScreen() {
                   label={punchType === "IN" ? "Submit punch in" : "Submit punch out"}
                   onPress={onSubmit}
                   busy={busy}
-                  disabled={loc.kind !== "ready"}
+                  disabled={loc.kind !== "ready" || outOfRange}
                 />
               </View>
             </View>
@@ -740,6 +807,43 @@ function LocationRow({ state, onRefresh }: { state: LocState; onRefresh: () => v
     </View>
   );
 }
+
+// ─── Geo helpers ───────────────────────────────────────────────────────────────
+
+/** Haversine distance in metres between two lat/lng points. */
+function haversine(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000; // Earth radius in metres
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+/** Find the nearest branch and check whether the user is within its radius. */
+function findNearest(lat: number, lon: number, branches: Branch[]): GeoCheck {
+  let best: { name: string; dist: number; allowed: number } | null = null;
+  for (const b of branches) {
+    const bLat = parseFloat(b.latitude);
+    const bLon = parseFloat(b.longitude);
+    if (isNaN(bLat) || isNaN(bLon)) continue;
+    const dist = haversine(lat, lon, bLat, bLon);
+    if (!best || dist < best.dist) {
+      best = { name: b.name, dist, allowed: b.radius };
+    }
+  }
+  if (!best) return null;
+  return {
+    inRange: best.dist <= best.allowed,
+    branchName: best.name,
+    distance: best.dist,
+    allowed: best.allowed,
+  };
+}
+
+// ─── Styles ────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
@@ -814,4 +918,16 @@ const styles = StyleSheet.create({
   },
   permTitle: { ...type.title, color: colors.ink },
   permBody: { ...type.body, color: colors.inkSoft, lineHeight: 21, marginBottom: spacing.sm },
+  distanceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    alignSelf: "center",
+  },
+  distanceOk: { backgroundColor: colors.okTint },
+  distanceFar: { backgroundColor: colors.dangerTint },
+  distanceText: { ...type.small, fontWeight: "600", fontSize: 12 },
 });

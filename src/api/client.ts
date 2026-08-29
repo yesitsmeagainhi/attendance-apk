@@ -158,6 +158,7 @@ export const api = {
     punchType: "IN" | "OUT";
     latitude: number;
     longitude: number;
+    sessionNumber: number;
   }) => {
     // React Native's New Architecture (0.81+) removed support for the legacy
     // { uri, name, type } form part that most upload examples still show; it
@@ -172,6 +173,7 @@ export const api = {
     form.append("punchType", args.punchType);
     form.append("latitude", String(args.latitude));
     form.append("longitude", String(args.longitude));
+    form.append("sessionNumber", String(args.sessionNumber));
 
     // Content-Type is intentionally omitted: React Native sets the multipart
     // boundary itself, and forcing the header breaks the body parse.
@@ -241,6 +243,12 @@ export type PunchStatus = {
   canPunchOut: boolean;
 };
 
+export type SessionInfo = {
+  inTime: string;
+  outTime: string | null;
+  durationMinutes: number | null;
+};
+
 export type HistoryRecord = {
   date: string;
   punchInTime: string | null;
@@ -251,6 +259,7 @@ export type HistoryRecord = {
   office: string | null;
   photoKeyIn: string | null;
   photoKeyOut: string | null;
+  sessions?: SessionInfo[];
 };
 
 export type HistoryResponse = {
@@ -261,6 +270,7 @@ export type HistoryResponse = {
   halfDays: number;
   absentDays: number;
   leaveDays: number;
+  isFlexible?: boolean;
 };
 
 export type RequestStatus = "pending" | "approved" | "rejected";
@@ -303,6 +313,7 @@ export type TimesheetDay = {
   punchIn: string | null;
   punchOut: string | null;
   duration: number | null;
+  sessions?: SessionInfo[];
 };
 
 export type Timesheet = {
@@ -313,6 +324,7 @@ export type Timesheet = {
   absentDays: number;
   halfDays: number;
   leaveDays: number;
+  isFlexible?: boolean;
 };
 
 export type Profile = {

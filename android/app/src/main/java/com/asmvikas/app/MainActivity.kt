@@ -1,4 +1,4 @@
-package com.abs.attendly.app
+package com.asmvikas.app
 
 import android.os.Build
 import android.os.Bundle

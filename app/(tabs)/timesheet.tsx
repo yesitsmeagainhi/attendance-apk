@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
@@ -32,6 +32,8 @@ export default function TimesheetScreen() {
       load(month);
     }, [load, month]),
   );
+
+  const isFlex = !!data?.isFlexible;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -90,7 +92,7 @@ export default function TimesheetScreen() {
             ) : null}
           </View>
         }
-        renderItem={({ item }) => <DayRow day={item} />}
+        renderItem={({ item }) => <DayRow day={item} isFlex={isFlex} />}
         ListEmptyComponent={loading ? null : <Muted>No entries for this month.</Muted>}
       />
     </SafeAreaView>
@@ -106,20 +108,47 @@ function Stat({ value, label, tone }: { value: number; label: string; tone: stri
   );
 }
 
-function DayRow({ day }: { day: TimesheetDay }) {
+function DayRow({ day, isFlex }: { day: TimesheetDay; isFlex: boolean }) {
+  const sessions = day.sessions;
+  const showSessions = isFlex && sessions && sessions.length > 0;
+
   return (
     <View style={styles.row}>
-      <View style={styles.dayCol}>
-        <Text style={styles.dayNum}>{day.date.slice(8)}</Text>
-        <Text style={styles.dayName}>{DAY_NAMES[day.dayOfWeek] ?? ""}</Text>
+      <View style={styles.rowInner}>
+        <View style={styles.dayCol}>
+          <Text style={styles.dayNum}>{day.date.slice(8)}</Text>
+          <Text style={styles.dayName}>{DAY_NAMES[day.dayOfWeek] ?? ""}</Text>
+        </View>
+        <View style={styles.rowMain}>
+          {showSessions ? (
+            <Text style={styles.rowTimes}>
+              {sessions.length} session{sessions.length !== 1 ? "s" : ""}
+            </Text>
+          ) : (
+            <Text style={styles.rowTimes}>
+              {formatTime(day.punchIn)} — {formatTime(day.punchOut)}
+            </Text>
+          )}
+          <Text style={styles.rowStatus}>{day.status}</Text>
+        </View>
+        <Text style={styles.rowDuration}>{formatDuration(day.duration)}</Text>
       </View>
-      <View style={styles.rowMain}>
-        <Text style={styles.rowTimes}>
-          {formatTime(day.punchIn)} — {formatTime(day.punchOut)}
-        </Text>
-        <Text style={styles.rowStatus}>{day.status}</Text>
-      </View>
-      <Text style={styles.rowDuration}>{formatDuration(day.duration)}</Text>
+
+      {showSessions ? (
+        <View style={styles.sessionsBlock}>
+          {sessions.map((ses, i) => (
+            <View key={i} style={styles.sessionLine}>
+              <Text style={styles.sessionLabel}>S{i + 1}</Text>
+              <Text style={styles.sessionTimes}>
+                {formatTime(ses.inTime)} — {ses.outTime ? formatTime(ses.outTime) : "ongoing"}
+              </Text>
+              <Text style={styles.sessionDur}>
+                {ses.durationMinutes != null ? formatDuration(ses.durationMinutes) : "—"}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -167,14 +196,17 @@ const styles = StyleSheet.create({
   statValue: { fontSize: s(22), fontWeight: "700", fontVariant: ["tabular-nums"] },
   statLabel: { ...type.small, color: colors.muted, fontSize: s(12) },
   row: {
-    flexDirection: "row",
-    alignItems: "center",
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.rule,
     borderRadius: radius.md,
     padding: spacing.md,
     marginBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  rowInner: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
   },
   dayCol: { width: s(38), alignItems: "center" },
@@ -184,4 +216,28 @@ const styles = StyleSheet.create({
   rowTimes: { ...type.body, color: colors.ink, fontVariant: ["tabular-nums"] },
   rowStatus: { ...type.small, color: colors.muted, textTransform: "capitalize" },
   rowDuration: { ...type.small, color: colors.inkSoft, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  // Session breakdown styles (flex users)
+  sessionsBlock: { gap: spacing.xs, paddingLeft: s(38) + spacing.md },
+  sessionLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  sessionLabel: {
+    ...type.label,
+    color: colors.accent,
+    width: s(22),
+  },
+  sessionTimes: {
+    ...type.small,
+    color: colors.ink,
+    fontVariant: ["tabular-nums"],
+    flex: 1,
+  },
+  sessionDur: {
+    ...type.small,
+    color: colors.inkSoft,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
 });

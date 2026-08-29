@@ -17,8 +17,8 @@
       "**/*"
     ],
     "android": {
-      "package": "com.abs.attendly.app",
-      "versionCode": 1,
+      "package": "com.asmvikas.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
@@ -58,8 +58,7 @@
         {
           "locationAlwaysAndWhenInUsePermission": "ASM Vikas checks your location to confirm you are at an office branch when you punch."
         }
-      ],
-      "@react-native-community/datetimepicker"
+      ]
     ],
     "extra": {
       "router": {},
