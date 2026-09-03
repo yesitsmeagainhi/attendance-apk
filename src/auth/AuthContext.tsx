@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as SecureStore from "expo-secure-store";
-import { api, setAuthToken } from "../api/client";
+import { api, ApiError, setAuthToken } from "../api/client";
 
 /**
  * Session tokens are plain UUIDs with a one-year lifetime, so they live in
@@ -39,11 +39,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // existing sessions.
         try {
           const check = await api.sessionCheck();
-          if (!check?.valid) throw new Error("invalid");
-        } catch {
-          await clearStorage();
-          setAuthToken(null);
-          return;
+          if (!check?.valid) throw new ApiError("invalid", 401);
+        } catch (err) {
+          // Only clear the session when the server explicitly says the token
+          // is invalid (401/403). Network errors (status 0, timeouts, no
+          // connectivity) should NOT log the user out — they can retry once
+          // they have a connection again.
+          const status = err instanceof ApiError ? err.status : 0;
+          if (status === 401 || status === 403) {
+            await clearStorage();
+            setAuthToken(null);
+            return;
+          }
+          // Network/server error — keep the stored session and proceed offline
         }
 
         const [name, employeeId] = await Promise.all([
