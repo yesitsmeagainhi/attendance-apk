@@ -62,6 +62,8 @@ export function statusColors(status: string): { fg: string; bg: string } {
   switch (status) {
     case "Present":
     case "On Time":
+    case "On time":
+    case "Overtime":
       return { fg: colors.ok, bg: colors.okTint };
     case "Late":
     case "Half Day":
@@ -69,6 +71,10 @@ export function statusColors(status: string): { fg: string; bg: string } {
       return { fg: colors.warn, bg: colors.warnTint };
     case "Absent":
       return { fg: colors.danger, bg: colors.dangerTint };
+    case "Leave":
+    case "Paid Holiday":
+    case "Holiday":
+      return { fg: colors.accent, bg: colors.accentTint };
     default:
       return { fg: colors.inkSoft, bg: colors.bg };
   }

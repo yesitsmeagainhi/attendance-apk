@@ -208,6 +208,14 @@ export const api = {
   saveJournal: (args: { date: string; tasks: string; todos: string[] }) =>
     postJson("/api/attendance/journal", args),
 
+  // ------------------------------------------------------------ payslips
+
+  /** Months with a published payslip for the signed-in employee, newest first. */
+  payslips: (): Promise<{ payslips: PayslipSummary[] }> => getJson("/api/payslips"),
+
+  payslip: (month: string): Promise<{ payslip: Payslip }> =>
+    getJson(`/api/payslips?month=${encodeURIComponent(month)}`),
+
   timesheet: (month?: string): Promise<Timesheet> =>
     getJson(`/api/attendance/timesheet${month ? `?month=${encodeURIComponent(month)}` : ""}`),
 
@@ -233,10 +241,15 @@ export type PunchStatus = {
   workStartTime: string;
   workEndTime: string;
   office: string;
-  punchIn: { time: string; office: string; photoKey: string } | null;
-  punchOut: { time: string; office: string; photoKey: string } | null;
-  punches: Array<{ type: "IN" | "OUT"; time: string; office: string; photoKey: string }>;
+  /** `pending` = from a miss-punch request still waiting for admin approval (no photo/office yet) */
+  punchIn: { time: string; office: string; photoKey: string; pending?: boolean } | null;
+  punchOut: { time: string; office: string; photoKey: string; pending?: boolean } | null;
+  punches: Array<{ type: "IN" | "OUT"; time: string; office: string; photoKey: string; pending?: boolean }>;
+  /** Miss-punch requests for today that already count as punches while awaiting approval */
+  pendingPunches?: Array<{ type: "IN" | "OUT"; time: string }>;
   flexibleHours: boolean;
+  /** Admin allowed this employee to punch outside the office geo-fence */
+  punchAnywhere?: boolean;
   rules: { gracePeriod: number; lunchBreakEnabled: boolean; lunchBreakMinHours: number };
   nextPunchType: "IN" | "OUT" | null;
   canPunchIn: boolean;
@@ -260,6 +273,11 @@ export type HistoryRecord = {
   photoKeyIn: string | null;
   photoKeyOut: string | null;
   sessions?: SessionInfo[];
+  /** Punched out but no punch-in that day */
+  missedPunchIn?: boolean;
+  /** Punched in but never punched out */
+  missedPunchOut?: boolean;
+  holidayName?: string;
 };
 
 export type HistoryResponse = {
@@ -340,4 +358,51 @@ export type Profile = {
   createdAt: string;
   /** Set by the server after a successful photo upload. */
   photoUrl?: string | null;
+};
+
+// ---------------------------------------------------------------- payslips
+
+export type PayslipSummary = { month: string; monthLabel: string; netPay: number; publishedAt: string };
+
+export type SalaryLine = {
+  label: string;
+  detail: string;
+  /** Short "how it was worked out" text (older payslips only have `detail`) */
+  note?: string;
+  amount: number;
+  kind: "base" | "deduction" | "extra" | "info";
+};
+
+/** Frozen copy of a month's salary, as published by the admin. */
+export type Payslip = {
+  month: string;
+  monthLabel: string;
+  publishedAt: string;
+  company?: { name: string; address: string };
+  employee: { id: string; name: string; jobRole: string; department: string; office: string; shift: string; dateOfJoining?: string };
+  isFlexible: boolean;
+  attendance: {
+    daysInMonth: number;
+    workedDays?: number;
+    presentDays: number;
+    halfDays: number;
+    absentDays: number;
+    lateDays: number;
+    leaveDays: number;
+    unpaidLeaveDays: number;
+    weeklyOffs: number;
+    holidays: number;
+    weekOffWorkedDays: number;
+    workedMinutes: number;
+    overtimeMinutes: number;
+  };
+  pay: {
+    monthlySalary: number;
+    perDayRate: number;
+    hourlyRate: number;
+    lines: SalaryLine[];
+    deductions: number;
+    additions: number;
+    netPay: number;
+  };
 };

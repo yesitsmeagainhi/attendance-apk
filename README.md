@@ -24,6 +24,7 @@ server was modified to support this client.
 | Punch | Front camera capture with GPS acquired in parallel, then upload. |
 | History | Per-day records with status, duration, month summary, and the punch-in / punch-out selfies as tappable thumbnails. |
 | Profile | Employee details and sign-out. |
+| Payslips | Published monthly payslips (earnings, deductions, net pay in words), opened from Today. Same figures as the web panel. |
 
 ## Which server it talks to
 

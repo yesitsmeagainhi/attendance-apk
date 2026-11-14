@@ -1,8 +1,25 @@
+import { Linking, Platform } from "react-native";
 import * as Location from "expo-location";
 import * as ImageManipulator from "expo-image-manipulator";
 import { LOCATION_TIMEOUT_MS, PHOTO_MAX_WIDTH, PHOTO_QUALITY } from "../config";
 
-export class PunchPrepError extends Error {}
+/**
+ * Why a location fix failed, so the punch screen can offer the right fix:
+ *   "denied"  the app isn't allowed to use location (canAskAgain = the system can still ask)
+ *   "off"     location / GPS is switched off on the phone
+ *   "timeout" location is on but no fix arrived in time
+ */
+export type LocationProblem = "denied" | "off" | "timeout";
+
+export class PunchPrepError extends Error {
+  reason?: LocationProblem;
+  canAskAgain?: boolean;
+  constructor(message: string, reason?: LocationProblem, canAskAgain?: boolean) {
+    super(message);
+    this.reason = reason;
+    this.canAskAgain = canAskAgain;
+  }
+}
 
 /**
  * Get a GPS fix, or fail with a message worth showing.
@@ -12,22 +29,25 @@ export class PunchPrepError extends Error {}
  * parallel with opening the camera rather than after the shutter.
  */
 export async function acquireLocation(): Promise<{ latitude: number; longitude: number }> {
-  const { status } = await Location.requestForegroundPermissionsAsync();
+  const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
   if (status !== "granted") {
     throw new PunchPrepError(
-      "Location permission is required to punch. Enable it for Attendly in Settings.",
+      "Location permission is required to punch. Allow it for ASM Vikas.",
+      "denied",
+      canAskAgain,
     );
   }
 
   const enabled = await Location.hasServicesEnabledAsync();
   if (!enabled) {
-    throw new PunchPrepError("Turn on GPS / location services, then try again.");
+    throw new PunchPrepError("Location is turned off on your phone. Turn it on to punch.", "off");
   }
 
   const fix = await withTimeout(
     Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
     LOCATION_TIMEOUT_MS,
     "Couldn't get a GPS fix. Move somewhere with a clearer view of the sky and try again.",
+    "timeout",
   );
 
   return { latitude: fix.coords.latitude, longitude: fix.coords.longitude };
@@ -49,9 +69,38 @@ export async function compressPhoto(uri: string): Promise<string> {
   return result.uri;
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+/**
+ * Turn location on. On Android this shows the system "Turn on location?"
+ * popup (one tap, no leaving the app); if that isn't available or is declined,
+ * it opens the phone's Location settings page instead.
+ * Resolves true when the popup was accepted.
+ */
+export async function turnOnLocation(): Promise<boolean> {
+  if (Platform.OS === "android") {
+    try {
+      await Location.enableNetworkProviderAsync();
+      return true;
+    } catch {
+      try {
+        await Linking.sendIntent("android.settings.LOCATION_SOURCE_SETTINGS");
+        return false;
+      } catch {
+        // fall through to the app's settings page
+      }
+    }
+  }
+  await Linking.openSettings();
+  return false;
+}
+
+/** This app's page in the phone's Settings (to allow location after "Don't ask again"). */
+export function openAppSettings() {
+  return Linking.openSettings();
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string, reason?: LocationProblem): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new PunchPrepError(message)), ms);
+    const timer = setTimeout(() => reject(new PunchPrepError(message, reason)), ms);
     p.then(
       (v) => {
         clearTimeout(timer);

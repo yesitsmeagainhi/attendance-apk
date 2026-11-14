@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   api,
   ApiError,
@@ -25,6 +25,8 @@ import { s } from "../../src/lib/responsive";
 import { formatDate } from "../../src/lib/punch";
 
 type Tab = "leave" | "misspunch";
+/** Pre-filled miss-punch, from the "forgot to punch in?" reminder or a History row */
+type MissPunchPrefill = { punchType: "IN" | "OUT"; date: string; time?: string; then?: "punch" };
 const LEAVE_TYPES = ["sick", "casual", "earned"] as const;
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAY_LABELS = ["S","M","T","W","T","F","S"];
@@ -38,6 +40,37 @@ export default function RequestsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [composing, setComposing] = useState(false);
+  const [prefill, setPrefill] = useState<MissPunchPrefill | null>(null);
+  const router = useRouter();
+  const params = useLocalSearchParams<{ compose?: string; punchType?: string; date?: string; time?: string; then?: string }>();
+
+  // Opened with a pre-filled miss punch: switch to that form, then clear the params
+  useEffect(() => {
+    if (params.compose !== "misspunch" || !params.date) return;
+    setTab("misspunch");
+    setPrefill({
+      punchType: params.punchType === "IN" ? "IN" : "OUT",
+      date: params.date,
+      time: params.time,
+      then: params.then === "punch" ? "punch" : undefined,
+    });
+    setComposing(true);
+    router.setParams({ compose: undefined, punchType: undefined, date: undefined, time: undefined, then: undefined });
+  }, [params.compose, params.punchType, params.date, params.time, params.then, router]);
+
+  /** After a "forgot to punch in" request: go straight on to the punch (now a punch-out). */
+  async function continueToPunch() {
+    try {
+      const st = await api.status();
+      if (st.nextPunchType && (st.nextPunchType === "IN" ? st.canPunchIn : st.canPunchOut)) {
+        router.push({ pathname: "/punch", params: { type: st.nextPunchType } });
+        return;
+      }
+    } catch {
+      // fall back to the Today screen
+    }
+    router.navigate("/");
+  }
 
   const load = useCallback(async () => {
     try {
@@ -66,8 +99,8 @@ export default function RequestsScreen() {
         <Title>Requests</Title>
 
         <View style={styles.tabs}>
-          <TabButton label="Leave" active={tab === "leave"} onPress={() => { setTab("leave"); setComposing(false); }} />
-          <TabButton label="Miss punch" active={tab === "misspunch"} onPress={() => { setTab("misspunch"); setComposing(false); }} />
+          <TabButton label="Leave" active={tab === "leave"} onPress={() => { setTab("leave"); setComposing(false); setPrefill(null); }} />
+          <TabButton label="Miss punch" active={tab === "misspunch"} onPress={() => { setTab("misspunch"); setComposing(false); setPrefill(null); }} />
         </View>
 
         {error ? <Notice>{error}</Notice> : null}
@@ -76,7 +109,18 @@ export default function RequestsScreen() {
           tab === "leave" ? (
             <LeaveForm onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
           ) : (
-            <MissPunchForm onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
+            <MissPunchForm
+              key={prefill ? `${prefill.date}-${prefill.punchType}-${prefill.time ?? ""}` : "blank"}
+              prefill={prefill}
+              onDone={() => {
+                const then = prefill?.then;
+                setComposing(false);
+                setPrefill(null);
+                load();
+                if (then === "punch") continueToPunch();
+              }}
+              onCancel={() => { setComposing(false); setPrefill(null); }}
+            />
           )
         ) : (
           <Button
@@ -162,7 +206,6 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
       <DateField
         label="From"
         value={fromDate}
-        maximumDate={toDate}
         onChange={(d) => { setFromDate(d); if (d > toDate) setToDate(d); }}
       />
       <DateField label="To" value={toDate} minimumDate={fromDate} onChange={setToDate} />
@@ -188,10 +231,15 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
 
 // ─── Miss-punch form ───────────────────────────────────────────────────────────
 
-function MissPunchForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
-  const [date, setDate] = useState(todayDate());
-  const [punchType, setPunchType] = useState<"IN" | "OUT">("OUT");
-  const [time, setTime] = useState(() => { const d = new Date(); d.setHours(18, 30, 0, 0); return d; });
+function MissPunchForm({ prefill, onDone, onCancel }: { prefill?: MissPunchPrefill | null; onDone: () => void; onCancel: () => void }) {
+  const [date, setDate] = useState(() => (prefill ? fromYMD(prefill.date) : todayDate()));
+  const [punchType, setPunchType] = useState<"IN" | "OUT">(prefill?.punchType ?? "OUT");
+  const [time, setTime] = useState(() => {
+    const d = new Date();
+    const [h, m] = (prefill?.time ?? "18:30").split(":").map(Number);
+    d.setHours(isNaN(h) ? 18 : h, isNaN(m) ? 30 : m, 0, 0);
+    return d;
+  });
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +263,11 @@ function MissPunchForm({ onDone, onCancel }: { onDone: () => void; onCancel: () 
 
   return (
     <Card>
+      {prefill?.then === "punch" ? (
+        <Notice tone="warn">
+          Request your missed punch-in. After you submit, the camera opens so your punch now is saved as the punch-out.
+        </Notice>
+      ) : null}
       <Label>Which punch</Label>
       <View style={styles.chips}>
         {(["IN", "OUT"] as const).map((t) => (
@@ -271,14 +324,14 @@ function DateField({
         <Text style={styles.pickerValue}>{formatDate(toYMD(value))}</Text>
         <Ionicons name="chevron-down" size={s(16)} color={colors.muted} />
       </Pressable>
-      <CalendarModal
+      {open ? <CalendarModal
         visible={open}
         value={value}
         onConfirm={(d) => { onChange(d); setOpen(false); }}
         onDismiss={() => setOpen(false)}
         minimumDate={minimumDate}
         maximumDate={maximumDate}
-      />
+      /> : null}
     </View>
   );
 }
@@ -302,12 +355,12 @@ function TimeField({
         <Text style={styles.pickerValue}>{formatTime12(toHHMM(value))}</Text>
         <Ionicons name="chevron-down" size={s(16)} color={colors.muted} />
       </Pressable>
-      <TimeModal
+      {open ? <TimeModal
         visible={open}
         value={value}
         onConfirm={(d) => { onChange(d); setOpen(false); }}
         onDismiss={() => setOpen(false)}
-      />
+      /> : null}
     </View>
   );
 }
@@ -543,6 +596,12 @@ function todayDate(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function fromYMD(ymd: string): Date {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return todayDate();
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
 }
 
 function toYMD(d: Date): string {

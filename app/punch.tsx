@@ -462,20 +462,26 @@
 
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, ApiError, Branch } from "../src/api/client";
-import { acquireLocation, compressPhoto, PunchPrepError } from "../src/lib/punch";
+import { acquireLocation, compressPhoto, LocationProblem, openAppSettings, PunchPrepError, turnOnLocation } from "../src/lib/punch";
 import { Button, Notice } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
 
 type LocState =
   | { kind: "pending" }
   | { kind: "ready"; latitude: number; longitude: number }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; message: string; reason?: LocationProblem; canAskAgain?: boolean };
+
+function failedState(e: unknown): LocState {
+  return e instanceof PunchPrepError
+    ? { kind: "failed", message: e.message, reason: e.reason, canAskAgain: e.canAskAgain }
+    : { kind: "failed", message: "Couldn't determine your location." };
+}
 
 type Phase = "capture" | "review" | "done";
 
@@ -514,10 +520,13 @@ export default function PunchScreen() {
   const [geoAlert, setGeoAlert] = useState<ApiError["geoAlert"]>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [geoCheck, setGeoCheck] = useState<GeoCheck>(null);
+  // Admin let this employee punch outside the office geo-fence (field / remote staff)
+  const [punchAnywhere, setPunchAnywhere] = useState(false);
 
-  // ── Fetch branches on mount ──
+  // ── Fetch branches (and the punch-anywhere permission) on mount ──
   useEffect(() => {
     api.branches().then((r) => setBranches(r.branches)).catch(() => {});
+    api.status().then((st) => setPunchAnywhere(!!st.punchAnywhere)).catch(() => {});
   }, []);
 
   // ── Recompute distance whenever location or branches change ──
@@ -537,10 +546,7 @@ export default function PunchScreen() {
       const fix = await acquireLocation();
       setLoc({ kind: "ready", ...fix });
     } catch (e) {
-      setLoc({
-        kind: "failed",
-        message: e instanceof PunchPrepError ? e.message : "Couldn't determine your location.",
-      });
+      setLoc(failedState(e));
     }
   }, []);
 
@@ -552,12 +558,7 @@ export default function PunchScreen() {
         const fix = await acquireLocation();
         if (!cancelled) setLoc({ kind: "ready", ...fix });
       } catch (e) {
-        if (!cancelled) {
-          setLoc({
-            kind: "failed",
-            message: e instanceof PunchPrepError ? e.message : "Couldn't determine your location.",
-          });
-        }
+        if (!cancelled) setLoc(failedState(e));
       }
     })();
     return () => { cancelled = true; };
@@ -577,7 +578,31 @@ export default function PunchScreen() {
     return () => clearInterval(id);
   }, [phase]);
 
-  const outOfRange = geoCheck !== null && !geoCheck.inRange;
+  // Back from Settings (or the location popup) with no fix yet → try again straight away
+  const locRef = useRef(loc);
+  locRef.current = loc;
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active" && locRef.current.kind === "failed") refreshLocation();
+    });
+    return () => sub.remove();
+  }, [refreshLocation]);
+
+  async function fixLocation() {
+    if (loc.kind !== "failed") return;
+    if (loc.reason === "denied" && loc.canAskAgain === false) {
+      await openAppSettings();
+      return;
+    }
+    if (loc.reason === "off") {
+      const accepted = await turnOnLocation();
+      if (accepted) refreshLocation();
+      return;
+    }
+    refreshLocation();
+  }
+
+  const outOfRange = !punchAnywhere && geoCheck !== null && !geoCheck.inRange;
 
   async function onCapture() {
     if (busy) return;
@@ -698,23 +723,25 @@ export default function PunchScreen() {
 
           {/* Distance status chip */}
           {geoCheck && phase !== "done" ? (
-            <View style={[styles.distanceChip, geoCheck.inRange ? styles.distanceOk : styles.distanceFar]}>
+            <View style={[styles.distanceChip, geoCheck.inRange || punchAnywhere ? styles.distanceOk : styles.distanceFar]}>
               <Ionicons
-                name={geoCheck.inRange ? "checkmark-circle" : "warning"}
+                name={geoCheck.inRange || punchAnywhere ? "checkmark-circle" : "warning"}
                 size={16}
-                color={geoCheck.inRange ? colors.ok : colors.danger}
+                color={geoCheck.inRange || punchAnywhere ? colors.ok : colors.danger}
               />
-              <Text style={[styles.distanceText, { color: geoCheck.inRange ? colors.ok : colors.danger }]}>
+              <Text style={[styles.distanceText, { color: geoCheck.inRange || punchAnywhere ? colors.ok : colors.danger }]}>
                 {geoCheck.inRange
                   ? `${geoCheck.distance}m from ${geoCheck.branchName} (within ${geoCheck.allowed}m)`
-                  : `${geoCheck.distance}m from ${geoCheck.branchName} — move within ${geoCheck.allowed}m to punch`}
+                  : punchAnywhere
+                    ? `Away from office (${formatKm(geoCheck.distance)} from ${geoCheck.branchName}) — you can punch from anywhere`
+                    : `${geoCheck.distance}m from ${geoCheck.branchName} — move within ${geoCheck.allowed}m to punch`}
               </Text>
             </View>
           ) : null}
 
           {loc.kind === "failed" && phase !== "done" ? (
             <View style={styles.wide}>
-              <Notice>{loc.message}</Notice>
+              <LocationHelp state={loc} onFix={fixLocation} />
             </View>
           ) : null}
 
@@ -806,6 +833,48 @@ function LocationRow({ state, onRefresh }: { state: LocState; onRefresh: () => v
       </Pressable>
     </View>
   );
+}
+
+/**
+ * What's wrong with the location and a button that fixes it where Android
+ * allows: the system "Turn on location?" popup, the app's permission prompt,
+ * or the app's page in Settings after "Don't ask again".
+ */
+function LocationHelp({ state, onFix }: { state: Extract<LocState, { kind: "failed" }>; onFix: () => void }) {
+  const blocked = state.reason === "denied" && state.canAskAgain === false;
+  const title =
+    state.reason === "off" ? "Location is off"
+      : state.reason === "denied" ? "Location isn't allowed"
+        : "Couldn't find your location";
+  const body =
+    state.reason === "off" ? "Your location is saved with every punch, so it has to be on."
+      : blocked ? "Open Settings → Permissions → Location → Allow, then come back here."
+        : state.message;
+  const label =
+    state.reason === "off" ? "Turn on location"
+      : blocked ? "Open app settings"
+        : state.reason === "denied" ? "Allow location"
+          : "Try again";
+  return (
+    <View style={styles.helpBox}>
+      <View style={styles.helpHead}>
+        <Ionicons name="location-outline" size={18} color={colors.white} />
+        <Text style={styles.helpTitle}>{title}</Text>
+      </View>
+      <Text style={styles.helpBody}>{body}</Text>
+      <Pressable
+        onPress={onFix}
+        accessibilityRole="button"
+        style={({ pressed }) => [styles.helpBtn, { opacity: pressed ? 0.85 : 1 }]}
+      >
+        <Text style={styles.helpBtnText}>{label}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function formatKm(m: number): string {
+  return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m}m`;
 }
 
 // ─── Geo helpers ───────────────────────────────────────────────────────────────
@@ -929,5 +998,24 @@ const styles = StyleSheet.create({
   },
   distanceOk: { backgroundColor: colors.okTint },
   distanceFar: { backgroundColor: colors.dangerTint },
-  distanceText: { ...type.small, fontWeight: "600", fontSize: 12 },
+  distanceText: { ...type.small, fontWeight: "600", fontSize: 12, flexShrink: 1 },
+  helpBox: {
+    backgroundColor: "rgba(20,20,28,0.92)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  helpHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  helpTitle: { ...type.heading, color: colors.white, fontWeight: "700" },
+  helpBody: { ...type.small, color: "rgba(255,255,255,0.8)", lineHeight: 19 },
+  helpBtn: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    marginTop: spacing.xs,
+  },
+  helpBtnText: { ...type.body, color: colors.brand, fontWeight: "700" },
 });

@@ -9,6 +9,8 @@ import { colors, radius, spacing, type } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
 import { formatTime, formatShiftTime, formatDuration } from "../../src/lib/punch";
 import { groupPunchesIntoSessions, Session, SessionSummary } from "../../src/lib/sessions";
+import { istToday, looksLikeForgottenPunchIn } from "../../src/lib/forgot-punch";
+import ForgotPunchInSheet from "../../src/components/ForgotPunchInSheet";
 
 export default function TodayScreen() {
   const { session } = useAuth();
@@ -16,6 +18,7 @@ export default function TodayScreen() {
   const [status, setStatus] = useState<PunchStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [askForgot, setAskForgot] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +58,52 @@ export default function TodayScreen() {
         ? "Punch in"
         : "Punch out";
 
+  function openPunch() {
+    router.push({
+      pathname: "/punch",
+      params: {
+        type: nextType!,
+        ...(sessionNumber != null ? { sessionNumber: String(sessionNumber) } : {}),
+      },
+    });
+  }
+
+  /**
+   * First punch of the day, but already past mid-shift: probably a forgotten
+   * punch-in. Offer to request it first, so this punch is saved as the
+   * punch-out (a pending request already counts) and no second request is needed.
+   */
+  async function onPunchPress() {
+    if (!status || !looksLikeForgottenPunchIn(status)) {
+      openPunch();
+      return;
+    }
+    // Don't ask again if a miss punch-in for today was already requested
+    // (pending or approved), even when the server doesn't count it yet.
+    try {
+      const { requests } = await api.missPunches();
+      const today = istToday();
+      if (requests.some((r) => r.date === today && r.punchType === "IN" && r.status !== "rejected")) {
+        openPunch();
+        return;
+      }
+    } catch {
+      // can't check: ask, as before
+    }
+    setAskForgot(true);
+  }
+
+  function requestForgottenPunchIn() {
+    setAskForgot(false);
+    if (!status) return;
+    router.push({
+      pathname: "/requests",
+      params: { compose: "misspunch", punchType: "IN", date: istToday(), time: status.workStartTime, then: "punch" },
+    });
+  }
+
+  const pending = status?.pendingPunches ?? [];
+
   const sessionNumber = isFlex && sessionData
     ? nextType === "IN"
       ? sessionData.nextSessionNumber
@@ -78,6 +127,20 @@ export default function TodayScreen() {
         </View>
 
         {error ? <Notice>{error}</Notice> : null}
+
+        {pending.length > 0 ? (
+          <Notice tone="warn">
+            {`Miss punch awaiting approval: your ${pending
+              .map((p) => `punch-${p.type === "IN" ? "in" : "out"} at ${formatTime(p.time)}`)
+              .join(", ")} is waiting for the admin to approve.${
+              nextType === "OUT"
+                ? " It already counts, so just punch out when you leave."
+                : nextType === "IN"
+                  ? " It already counts, so your next punch is a punch-in."
+                  : ""
+            }`}
+          </Notice>
+        ) : null}
 
         {/* ── Today card ─────────────────────────────────── */}
         {isFlex ? (
@@ -114,11 +177,13 @@ export default function TodayScreen() {
               <View style={styles.punchCell}>
                 <Text style={styles.punchLabel}>Punch in</Text>
                 <Text style={styles.punchTime}>{formatTime(status?.punchIn?.time)}</Text>
+                {status?.punchIn?.pending ? <Text style={styles.pendingText}>Awaiting approval</Text> : null}
               </View>
               <View style={styles.divider} />
               <View style={styles.punchCell}>
                 <Text style={styles.punchLabel}>Punch out</Text>
                 <Text style={styles.punchTime}>{formatTime(status?.punchOut?.time)}</Text>
+                {status?.punchOut?.pending ? <Text style={styles.pendingText}>Awaiting approval</Text> : null}
               </View>
             </View>
 
@@ -141,18 +206,7 @@ export default function TodayScreen() {
                 You'll take a selfie and application will check you're inside an office
                 geo-fence before recording the time.
               </Muted>
-              <Button
-                label={punchButtonLabel}
-                onPress={() =>
-                  router.push({
-                    pathname: "/punch",
-                    params: {
-                      type: nextType!,
-                      ...(sessionNumber != null ? { sessionNumber: String(sessionNumber) } : {}),
-                    },
-                  })
-                }
-              />
+              <Button label={punchButtonLabel} onPress={onPunchPress} />
             </>
           ) : (
             <Notice tone="ok">
@@ -178,6 +232,13 @@ export default function TodayScreen() {
           />
         </Card>
 
+        {/* ── Payslips ────────────────────────────────────── */}
+        <Card>
+          <Label>Payslips</Label>
+          <Muted>See your monthly pay: earnings, deductions and net pay.</Muted>
+          <Button label="View payslips" variant="secondary" onPress={() => router.push("/payslips")} />
+        </Card>
+
         {/* ── Flat punch log (regular users only) ────────── */}
         {status && status.punches.length > 0 && !isFlex ? (
           <Card>
@@ -191,13 +252,21 @@ export default function TodayScreen() {
                 />
                 <Text style={styles.logTime}>{formatTime(p.time)}</Text>
                 <Text style={styles.logOffice} numberOfLines={1}>
-                  {p.office}
+                  {p.pending ? "Awaiting approval" : p.office}
                 </Text>
               </View>
             ))}
           </Card>
         ) : null}
       </ScrollView>
+
+      <ForgotPunchInSheet
+        visible={askForgot}
+        shiftStart={status?.workStartTime ?? "09:00"}
+        onRequest={requestForgottenPunchIn}
+        onPunchNow={() => { setAskForgot(false); openPunch(); }}
+        onClose={() => setAskForgot(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -245,6 +314,7 @@ const styles = StyleSheet.create({
   logRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   logTime: { ...type.body, color: colors.ink, fontWeight: "600", fontVariant: ["tabular-nums"] },
   logOffice: { ...type.small, color: colors.muted, flex: 1 },
+  pendingText: { ...type.small, color: colors.warn, fontWeight: "700", fontSize: s(11) },
   // Session styles (flexible-hours users)
   sessionRow: {
     gap: spacing.xs,

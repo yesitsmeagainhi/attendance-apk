@@ -35,6 +35,7 @@ function Gate() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="punch" options={{ presentation: "fullScreenModal" }} />
       <Stack.Screen name="journal" />
+      <Stack.Screen name="payslips" />
     </Stack>
   );
 }
