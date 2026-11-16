@@ -28,8 +28,8 @@ type Tab = "leave" | "misspunch";
 /** Pre-filled miss-punch, from the "forgot to punch in?" reminder or a History row */
 type MissPunchPrefill = { punchType: "IN" | "OUT"; date: string; time?: string; then?: "punch" };
 const LEAVE_TYPES = ["sick", "casual", "earned"] as const;
-const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-const DAY_LABELS = ["S","M","T","W","T","F","S"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
@@ -485,7 +485,7 @@ function TimeModal({
     setHour12((h) => ((h - 1 + dir + 12) % 12) + 1);
   }
   function adjustMinute(dir: 1 | -1) {
-    setMinute((m) => (m + dir * 5 + 60) % 60);
+    setMinute((m) => (m + dir * 1 + 60) % 60);
   }
 
   function confirm() {
@@ -561,8 +561,8 @@ function RequestRow({ title, when, reason, status, note }: {
 }) {
   const palette =
     status === "approved" ? { fg: colors.ok, bg: colors.okTint } :
-    status === "rejected" ? { fg: colors.danger, bg: colors.dangerTint } :
-    { fg: colors.warn, bg: colors.warnTint };
+      status === "rejected" ? { fg: colors.danger, bg: colors.dangerTint } :
+        { fg: colors.warn, bg: colors.warnTint };
 
   return (
     <View style={styles.reqRow}>
