@@ -11,6 +11,7 @@ import { formatTime, formatShiftTime, formatDuration } from "../../src/lib/punch
 import { groupPunchesIntoSessions, Session, SessionSummary } from "../../src/lib/sessions";
 import { istToday, looksLikeForgottenPunchIn } from "../../src/lib/forgot-punch";
 import ForgotPunchInSheet from "../../src/components/ForgotPunchInSheet";
+import { splashTarget, useSplashLanded } from "../../src/lib/splash-target";
 
 export default function TodayScreen() {
   const { session } = useAuth();
@@ -19,6 +20,11 @@ export default function TodayScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [askForgot, setAskForgot] = useState(false);
+  const splashLanded = useSplashLanded();
+  // The launch splash measures this view to know where to fly its logo
+  const markRef = useCallback((v: View | null) => {
+    if (v) splashTarget.setView(v);
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -123,7 +129,14 @@ export default function TodayScreen() {
             <Label>Signed in as</Label>
             <Title>{session?.name || "Employee"}</Title>
           </View>
-          <Image source={require("../../assets/app-icon.jpg")} style={styles.mark} />
+          {/* The launch splash flies its logo into this spot, then this one takes over */}
+          <View
+            ref={markRef}
+            collapsable={false}
+            style={{ opacity: splashLanded ? 1 : 0 }}
+          >
+            <Image source={require("../../assets/android-circlebg.png")} style={styles.mark} />
+          </View>
         </View>
 
         {error ? <Notice>{error}</Notice> : null}

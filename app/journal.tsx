@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
+  BackHandler,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,15 +19,20 @@ import { Button, Card, Field, Label, Muted, Notice, Title } from "../src/compone
 import { colors, radius, spacing, type } from "../src/theme";
 import { s } from "../src/lib/responsive";
 
+/** Local "YYYY-MM-DD". Never toISOString(): that is UTC, which in India is the
+ *  previous day before 5:30 AM, and turns local midnight into yesterday. */
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Always fresh — never stale across midnight. */
 function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return ymd(new Date());
 }
 
 function shiftDate(iso: string, days: number): string {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
+  return ymd(new Date(y, m - 1, d + days));
 }
 
 function prettyDate(iso: string): string {
@@ -55,24 +62,43 @@ export default function JournalScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  // What the server has for this day, to tell whether there are unsaved edits
+  const [baseline, setBaseline] = useState({ tasks: "", todos: [] as string[] });
+  // Only the latest load may write state, so a slow response for a day the
+  // user already left can't fill in the day now on screen.
+  const reqId = useRef(0);
+
+  const dirty =
+    isToday &&
+    !loading &&
+    (draftTodo.trim() !== "" ||
+      tasks.trim() !== baseline.tasks.trim() ||
+      todos.length !== baseline.todos.length ||
+      todos.some((t, i) => t !== baseline.todos[i]));
 
   const loadJournal = useCallback(async (d: string) => {
+    const id = ++reqId.current;
     setLoading(true);
     setError(null);
     setSaved(false);
     setTasks("");
     setTodos([]);
     setDraftTodo("");
+    setBaseline({ tasks: "", todos: [] });
     try {
       const res = await api.journal(d);
+      if (id !== reqId.current) return;
       if (res.journal) {
-        setTasks(res.journal.tasks === "-" ? "" : res.journal.tasks);
-        setTodos(Array.isArray(res.journal.todos) ? res.journal.todos : []);
+        const t = res.journal.tasks === "-" ? "" : res.journal.tasks;
+        const list = Array.isArray(res.journal.todos) ? res.journal.todos : [];
+        setTasks(t);
+        setTodos(list);
+        setBaseline({ tasks: t, todos: list });
       }
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't load journal.");
+      if (id === reqId.current) setError(e instanceof ApiError ? e.message : "Couldn't load journal.");
     } finally {
-      setLoading(false);
+      if (id === reqId.current) setLoading(false);
     }
   }, []);
 
@@ -83,7 +109,10 @@ export default function JournalScreen() {
   async function save() {
     setError(null);
     setSaved(false);
-    if (todos.length === 0) {
+    // A task typed but not added with + still counts
+    const draft = draftTodo.trim();
+    const list = draft ? [...todos, draft] : todos;
+    if (list.length === 0) {
       setError("Add at least one task under 'Work done today' before saving.");
       return;
     }
@@ -92,7 +121,10 @@ export default function JournalScreen() {
       // Server requires `tasks` to be non-empty. If the user left briefing
       // blank, send a dash so the real content (todos list) still saves.
       const tasksValue = tasks.trim() || "-";
-      await api.saveJournal({ date, tasks: tasksValue, todos });
+      await api.saveJournal({ date, tasks: tasksValue, todos: list });
+      setTodos(list);
+      setDraftTodo("");
+      setBaseline({ tasks: tasks.trim(), todos: list });
       setSaved(true);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't save your journal.");
@@ -106,30 +138,51 @@ export default function JournalScreen() {
     if (!t) return;
     setTodos((prev) => [...prev, t]);
     setDraftTodo("");
+    setSaved(false);
     todoInputRef.current?.focus();
   }
 
+  /** Run `action`, but ask first if it would throw away unsaved edits. */
+  function confirmLeave(action: () => void) {
+    if (!dirty) return action();
+    Alert.alert("Discard changes?", "Your journal for today has unsaved changes.", [
+      { text: "Keep editing", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: action },
+    ]);
+  }
+
+  // Android back button / gesture
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!dirty) return false;
+      confirmLeave(() => router.back());
+      return true;
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dirty]);
+
+  function goToDate(d: string) {
+    confirmLeave(() => setDate(d));
+  }
+
   function prevDay() {
-    setDate((d) => shiftDate(d, -1));
+    goToDate(shiftDate(date, -1));
   }
 
   function nextDay() {
-    setDate((d) => {
-      const today = getToday();
-      const next = shiftDate(d, 1);
-      return next > today ? d : next;
-    });
+    const next = shiftDate(date, 1);
+    if (next <= getToday()) goToDate(next);
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
+      {/* Android is edge-to-edge, so the window no longer resizes for the
+          keyboard on its own; pad on both platforms to keep inputs visible. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <View style={styles.header}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={() => confirmLeave(() => router.back())}
             hitSlop={14}
             accessibilityLabel="Go back"
             accessibilityRole="button"
@@ -147,7 +200,7 @@ export default function JournalScreen() {
             <Ionicons name="chevron-back" size={22} color={colors.brand} />
           </Pressable>
           <Pressable
-            onPress={() => !isToday && setDate(getToday())}
+            onPress={() => !isToday && goToDate(getToday())}
             disabled={isToday}
             style={styles.dateLabelWrap}
             accessibilityLabel={isToday ? "Today" : "Jump to today"}
@@ -182,7 +235,11 @@ export default function JournalScreen() {
           <Card>
             <Label>Work done {isToday ? "today" : "on this day"}</Label>
 
-            {todos.length === 0 ? (
+            {loading ? (
+              <View style={styles.emptyHint}>
+                <ActivityIndicator color={colors.brand} />
+              </View>
+            ) : todos.length === 0 ? (
               <View style={styles.emptyHint}>
                 <Muted>{isToday ? "No tasks added yet. Add one below." : "No tasks were logged."}</Muted>
               </View>
@@ -193,7 +250,10 @@ export default function JournalScreen() {
                   <Text style={styles.todoText}>{t}</Text>
                   {isToday ? (
                     <Pressable
-                      onPress={() => setTodos((prev) => prev.filter((_, idx) => idx !== i))}
+                      onPress={() => {
+                        setTodos((prev) => prev.filter((_, idx) => idx !== i));
+                        setSaved(false);
+                      }}
                       hitSlop={10}
                       accessibilityRole="button"
                       accessibilityLabel={`Remove ${t}`}
@@ -239,7 +299,10 @@ export default function JournalScreen() {
             <Field
               label="Briefing / Additional notes (optional)"
               value={tasks}
-              onChangeText={setTasks}
+              onChangeText={(t) => {
+                setTasks(t);
+                setSaved(false);
+              }}
               placeholder={isToday ? "e.g. Pending items, handover notes, anything to flag…" : "No notes were added."}
               multiline
               editable={isToday && !loading && !saving}
@@ -248,11 +311,12 @@ export default function JournalScreen() {
           </Card>
 
           {error ? <Notice>{error}</Notice> : null}
-          {saved ? <Notice tone="ok">Journal saved.</Notice> : null}
+          {saved && !dirty ? <Notice tone="ok">Journal saved.</Notice> : null}
+          {dirty ? <Muted>You have unsaved changes.</Muted> : null}
 
           {isToday ? (
             <Button
-              label="Save journal"
+              label={baseline.todos.length ? "Update journal" : "Save journal"}
               onPress={save}
               busy={saving}
               disabled={loading}

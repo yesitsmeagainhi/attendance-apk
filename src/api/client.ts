@@ -1,4 +1,4 @@
-import { File, readAsStringAsync, EncodingType } from "expo-file-system";
+import { readAsStringAsync, EncodingType } from "expo-file-system";
 import { API_BASE_URL } from "../config";
 
 /**
@@ -73,6 +73,43 @@ async function request(path: string, init?: RequestInit) {
   return parse(res);
 }
 
+/**
+ * Build a multipart/form-data body as raw bytes, with one JPEG file part.
+ *
+ * Why not FormData: Expo SDK 57 replaces the global fetch with expo/fetch,
+ * which checks `body instanceof ReadableStream` before it handles FormData.
+ * ReadableStream is not defined on Hermes (Android), so any FormData upload
+ * throws "Property 'ReadableStream' doesn't exist". A Uint8Array body is
+ * handled before that check. Reading the file eagerly also avoids the OkHttp
+ * HTTP/2 "stream was reset: NO_ERROR" seen when streaming a File lazily.
+ */
+async function multipart(
+  fields: Record<string, string>,
+  file: { field: string; filename: string; uri: string },
+): Promise<{ body: Uint8Array<ArrayBuffer>; contentType: string }> {
+  const uri = file.uri.startsWith("file://") ? file.uri : `file://${file.uri}`;
+  const base64 = await readAsStringAsync(uri, { encoding: EncodingType.Base64 });
+  const fileBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+
+  const boundary = `----attendly${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+  const enc = new TextEncoder();
+  let head = "";
+  for (const [name, value] of Object.entries(fields)) {
+    head += `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;
+  }
+  head +=
+    `--${boundary}\r\nContent-Disposition: form-data; name="${file.field}"; filename="${file.filename}"\r\n` +
+    `Content-Type: image/jpeg\r\n\r\n`;
+  const headBytes = enc.encode(head);
+  const tailBytes = enc.encode(`\r\n--${boundary}--\r\n`);
+
+  const body = new Uint8Array(headBytes.length + fileBytes.length + tailBytes.length);
+  body.set(headBytes, 0);
+  body.set(fileBytes, headBytes.length);
+  body.set(tailBytes, headBytes.length + fileBytes.length);
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
 function getJson(path: string) {
   return request(path, { method: "GET", headers: headers() });
 }
@@ -124,21 +161,11 @@ export const api = {
    * Server should store the image and return the public URL.
    */
   uploadProfilePhoto: async (uri: string): Promise<{ photoUrl: string }> => {
-    const photoUri = uri.startsWith("file://") ? uri : `file://${uri}`;
-
-    // Read the file into memory before sending. Streaming expo-file-system's
-    // File lazily through FormData triggers an OkHttp3 HTTP/2 stream-reset
-    // ("stream was reset: NO_ERROR") on Android. Reading eagerly avoids it.
-    const base64 = await readAsStringAsync(photoUri, { encoding: EncodingType.Base64 });
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "image/jpeg" });
-
-    const form = new FormData();
-    form.append("photo", blob, "avatar.jpg");
+    const { body, contentType } = await multipart({}, { field: "photo", filename: "avatar.jpg", uri });
     const data = await request("/api/employee/profile/photo", {
       method: "POST",
-      headers: headers(),
-      body: form,
+      headers: headers({ "Content-Type": contentType }),
+      body,
     });
     // Server returns a relative path; make it absolute and bust the HTTP cache
     // so the new photo is fetched immediately even if the old one was cached.
@@ -160,24 +187,20 @@ export const api = {
     longitude: number;
     sessionNumber: number;
   }) => {
-    // React Native's New Architecture (0.81+) removed support for the legacy
-    // { uri, name, type } form part that most upload examples still show; it
-    // now throws "Unsupported FormDataPart implementation". expo-file-system's
-    // File implements Blob, so it can be appended directly.
-    const uri = args.photoUri.startsWith("file://")
-      ? args.photoUri
-      : `file://${args.photoUri}`;
-
-    const form = new FormData();
-    form.append("photo", new File(uri) as unknown as Blob, "selfie.jpg");
-    form.append("punchType", args.punchType);
-    form.append("latitude", String(args.latitude));
-    form.append("longitude", String(args.longitude));
-    form.append("sessionNumber", String(args.sessionNumber));
-
-    // Content-Type is intentionally omitted: React Native sets the multipart
-    // boundary itself, and forcing the header breaks the body parse.
-    return request("/api/attendance", { method: "POST", headers: headers(), body: form });
+    const { body, contentType } = await multipart(
+      {
+        punchType: args.punchType,
+        latitude: String(args.latitude),
+        longitude: String(args.longitude),
+        sessionNumber: String(args.sessionNumber),
+      },
+      { field: "photo", filename: "selfie.jpg", uri: args.photoUri },
+    );
+    return request("/api/attendance", {
+      method: "POST",
+      headers: headers({ "Content-Type": contentType }),
+      body,
+    });
   },
 
   // ------------------------------------------------------------ requests

@@ -10,6 +10,7 @@ import { api, ApiError, setAuthToken } from "../api/client";
 const TOKEN_KEY = "attendly.session.token";
 const NAME_KEY = "attendly.session.name";
 const EMPLOYEE_KEY = "attendly.session.employeeId";
+const SESSION_CHECK_TIMEOUT_MS = 5000;
 
 type Session = { token: string; name: string; employeeId: string };
 
@@ -38,7 +39,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // employee signing in elsewhere invalidates it, since verify-otp drops
         // existing sessions.
         try {
-          const check = await api.sessionCheck();
+          // Don't hold the splash on a slow network: past the timeout, treat it
+          // like being offline and keep the stored session.
+          const check = await Promise.race([
+            api.sessionCheck(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new ApiError("timeout", 0)), SESSION_CHECK_TIMEOUT_MS),
+            ),
+          ]);
           if (!check?.valid) throw new ApiError("invalid", 401);
         } catch (err) {
           // Only clear the session when the server explicitly says the token
