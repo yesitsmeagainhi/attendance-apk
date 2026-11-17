@@ -1,4 +1,4 @@
-import { readAsStringAsync, EncodingType } from "expo-file-system";
+import { File } from "expo-file-system";
 import { API_BASE_URL } from "../config";
 
 /**
@@ -88,8 +88,10 @@ async function multipart(
   file: { field: string; filename: string; uri: string },
 ): Promise<{ body: Uint8Array<ArrayBuffer>; contentType: string }> {
   const uri = file.uri.startsWith("file://") ? file.uri : `file://${file.uri}`;
-  const base64 = await readAsStringAsync(uri, { encoding: EncodingType.Base64 });
-  const fileBytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  // New file API. The legacy readAsStringAsync from "expo-file-system" throws
+  // at call time in this SDK ("imported from expo-file-system is deprecated"),
+  // which failed every punch with "Couldn't record your punch".
+  const fileBytes = await new File(uri).bytes();
 
   const boundary = `----attendly${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
   const enc = new TextEncoder();

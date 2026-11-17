@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
-  Keyboard,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -27,6 +25,7 @@ import { Button, Card, Label, Muted, Notice, Pill, Title } from "../../src/compo
 import { colors, radius, spacing, type } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
 import { formatDate } from "../../src/lib/punch";
+import { useKeyboardReveal } from "../../src/lib/useKeyboardReveal";
 
 type Tab = "leave" | "misspunch";
 /** Pre-filled miss-punch, from the "forgot to punch in?" reminder or a History row */
@@ -113,55 +112,8 @@ export default function RequestsScreen() {
     useCallback(() => { load(); }, [load]),
   );
 
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollY = useRef(0);
-
-  /**
-   * Lift a form field so it sits just above the keyboard, and no higher.
-   *
-   * Everything is measured on the device at the moment the keyboard is up:
-   * the field, the scroll area's visible bottom (already shortened by the
-   * KeyboardAvoidingView padding) and, when the keyboard event gives it, the
-   * keyboard's real top edge. Whichever edge is higher is the limit, so it
-   * fits any phone size, keyboard height, gesture or 3-button navigation.
-   * The view only scrolls by the amount the field is hidden; a field that is
-   * already fully visible doesn't move.
-   */
-  const revealField = useCallback((field: View | null) => {
-    if (!field) return;
-    let done = false;
-    const run = (keyboardTop?: number) => {
-      if (done) return;
-      done = true;
-      sub.remove();
-      clearTimeout(fallback);
-      const scroll = scrollRef.current;
-      if (!scroll) return;
-      field.measureInWindow((_fx, fy, _fw, fh) => {
-        (scroll as unknown as View).measureInWindow((_sx, sy, _sw, sh) => {
-          let visibleBottom = sy + sh;
-          if (keyboardTop && keyboardTop > sy) visibleBottom = Math.min(visibleBottom, keyboardTop);
-          const gap = spacing.md; // breathing room between the box and the keyboard
-          const hiddenBy = fy + fh + gap - visibleBottom;
-          if (hiddenBy <= 0) return; // already visible
-          // Never push the field's top out of view (very small screens)
-          const maxLift = Math.max(0, fy - sy - gap);
-          const lift = Math.min(hiddenBy, maxLift || hiddenBy);
-          scroll.scrollTo({ y: scrollY.current + lift, animated: true });
-        });
-      });
-    };
-    const sub = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      (e) => {
-        const top = e?.endCoordinates?.screenY;
-        // Let the padding for the keyboard apply before measuring
-        requestAnimationFrame(() => setTimeout(() => run(top), Platform.OS === "ios" ? 250 : 30));
-      },
-    );
-    // Keyboard already open (moving between fields): no show event will come
-    const fallback = setTimeout(() => run(), 450);
-  }, []);
+  // Lift the Reason box just above the keyboard (shared with Login)
+  const { scrollRef, onScroll, reveal: revealField } = useKeyboardReveal();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -170,7 +122,7 @@ export default function RequestsScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <ScrollView
         ref={scrollRef}
-        onScroll={(e) => { scrollY.current = e.nativeEvent.contentOffset.y; }}
+        onScroll={onScroll}
         scrollEventThrottle={32}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"

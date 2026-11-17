@@ -26,13 +26,29 @@ const LOGO_SIZE = 220; // keep in sync with imageWidth in app.json
 const HOLD_MS = 250; // brief beat on the full-page logo before it moves
 const FLIGHT_MS = 650;
 const MAX_WAIT_MS = 1200; // give up waiting for Today's header and just fade
+const HARD_FAILSAFE_MS = 6000; // the overlay is removed by now no matter what
 
 type Rect = { x: number; y: number; width: number; height: number };
 
+/**
+ * Measure a view in window coordinates, or null.
+ * Never hangs: Android never calls back for a view that has unmounted (e.g.
+ * Today mounting for a moment before the gate redirects to Login), so give up
+ * after a short timeout instead of waiting forever.
+ */
 function measure(v: View | null): Promise<Rect | null> {
   return new Promise((resolve) => {
     if (!v) return resolve(null);
-    v.measureInWindow((x, y, width, height) => resolve(width ? { x, y, width, height } : null));
+    const t = setTimeout(() => resolve(null), 150);
+    try {
+      v.measureInWindow((x, y, width, height) => {
+        clearTimeout(t);
+        resolve(width ? { x, y, width, height } : null);
+      });
+    } catch {
+      clearTimeout(t);
+      resolve(null);
+    }
   });
 }
 
@@ -70,7 +86,15 @@ export default function AnimatedSplash({ ready }: { ready: boolean }) {
   // If the logo never reports loaded, start anyway so the app is revealed
   useEffect(() => {
     const t = setTimeout(start, 1500);
-    return () => clearTimeout(t);
+    // Hard failsafe: whatever goes wrong below, the overlay can never trap the app
+    const kill = setTimeout(() => {
+      splashTarget.land();
+      setGone(true);
+    }, HARD_FAILSAFE_MS);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(kill);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -78,7 +102,9 @@ export default function AnimatedSplash({ ready }: { ready: boolean }) {
     if (!ready || !started) return;
     let cancelled = false;
 
-    const done = () => !cancelled && setGone(true);
+    const done = () => {
+      if (!cancelled) setGone(true);
+    };
 
     // Show the real header logo, then fade the flying one off on top of it
     const land = () => {

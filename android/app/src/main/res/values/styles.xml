@@ -1,14 +1,26 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-  <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+  <!-- Light-only: every screen is designed on light backgrounds. With DayNight,
+       a phone in dark mode made Android draw white status/navigation-bar icons
+       over the app's white screens (the bars are transparent, edge-to-edge). -->
+  <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
     <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
     <item name="colorPrimary">@color/colorPrimary</item>
     <item name="android:statusBarColor">@android:color/transparent</item>
     <item name="android:navigationBarColor">@android:color/transparent</item>
+    <!-- Dark icons on the transparent system bars -->
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+    <!-- Don't let Android add its own grey scrim behind 3-button navigation -->
+    <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
   </style>
   <style name="Theme.App.SplashScreen" parent="Theme.SplashScreen">
     <item name="windowSplashScreenBackground">@color/splashscreen_background</item>
     <item name="windowSplashScreenAnimatedIcon">@drawable/splashscreen_logo</item>
     <item name="postSplashScreenTheme">@style/AppTheme</item>
     <item name="android:windowSplashScreenBehavior">icon_preferred</item>
+    <!-- Splash is white too: dark system-bar icons here as well -->
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+    <item name="android:navigationBarColor">@android:color/transparent</item>
   </style>
 </resources>

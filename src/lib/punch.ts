@@ -60,10 +60,14 @@ export async function acquireLocation(): Promise<{ latitude: number; longitude: 
  * produce 4-8 MB, so skipping this causes punches that fail only on good
  * handsets — the least obvious failure mode in the whole flow.
  */
-export async function compressPhoto(uri: string): Promise<string> {
+export async function compressPhoto(uri: string, opts: { mirror?: boolean } = {}): Promise<string> {
+  // `mirror` flips the image so a front-camera shot matches the mirrored
+  // preview. expo-camera saved raw (unmirrored) selfies and needed it; Vision
+  // Camera's default mirrorMode 'auto' already mirrors front-camera output.
+  const { mirror = true } = opts;
   const result = await ImageManipulator.manipulateAsync(
     uri,
-    [{ flip: ImageManipulator.FlipType.Horizontal }, { resize: { width: PHOTO_MAX_WIDTH } }],
+    [...(mirror ? [{ flip: ImageManipulator.FlipType.Horizontal }] : []), { resize: { width: PHOTO_MAX_WIDTH } }],
     { compress: PHOTO_QUALITY, format: ImageManipulator.SaveFormat.JPEG },
   );
   return result.uri;
@@ -127,7 +131,9 @@ export function formatTime(raw: string | null | undefined): string {
   const iso = raw.includes("T") ? raw : raw.replace(" ", "T");
   const d = new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
   if (isNaN(d.getTime())) return raw;
-  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  // Always 12-hour "2:35 PM", same as shift times. toLocaleTimeString followed
+  // the phone's clock setting, so 24-hour phones showed "14:35".
+  return formatShiftTime(`${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`);
 }
 
 /** The history and timesheet APIs return durations as whole minutes. */

@@ -22,8 +22,9 @@ export default function TodayScreen() {
   const [askForgot, setAskForgot] = useState(false);
   const splashLanded = useSplashLanded();
   // The launch splash measures this view to know where to fly its logo
+  // (cleared on unmount, so the splash never aims at a view that is gone)
   const markRef = useCallback((v: View | null) => {
-    if (v) splashTarget.setView(v);
+    splashTarget.setView(v);
   }, []);
 
   const load = useCallback(async () => {

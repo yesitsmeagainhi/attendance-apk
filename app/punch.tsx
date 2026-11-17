@@ -461,10 +461,18 @@
 // });
 
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Image, Pressable, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { CameraView, useCameraPermissions } from "expo-camera";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { StatusBar } from "expo-status-bar";
+import {
+  Camera,
+  CommonResolutions,
+  useCameraDevice,
+  useCameraPermission,
+  usePhotoOutput,
+} from "react-native-vision-camera";
+import { createFaceDetectorOutput, type Face } from "react-native-vision-camera-face-detector";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, ApiError, Branch } from "../src/api/client";
@@ -493,6 +501,47 @@ type GeoCheck =
 
 const AUTO_REFRESH_MS = 10_000; // re-check location every 10s
 
+// ─── Face detection ────────────────────────────────────────────────────────────
+
+/**
+ * What the face guide shows:
+ *   searching  no face yet (white oval)
+ *   ok         exactly one face, close enough (green oval, shutter enabled)
+ *   far        a face, but too small in frame: "move closer" (amber)
+ *   many       more than one face (amber)
+ *   off        detector unavailable on this phone: guide stays neutral and the
+ *              shutter is not blocked, so nobody is ever locked out of punching
+ */
+type FaceState = "searching" | "ok" | "far" | "many" | "off";
+
+/** A face must span at least this share of the frame's shorter side. */
+const MIN_FACE_RATIO = 0.28;
+/** Drop back to "searching" only after this long without a face (no flicker). */
+const FACE_LOST_MS = 600;
+/** If the detector never reports within this time, stop blocking the shutter. */
+const DETECTOR_TIMEOUT_MS = 5000;
+/** Stable module-level constant: an inline object would recreate the photo
+ *  output on every render and reconfigure (and close) the camera. */
+const PHOTO_RESOLUTION = CommonResolutions.FHD_4_3;
+
+function classifyFaces(faces: Face[]): FaceState {
+  if (faces.length === 0) return "searching";
+  if (faces.length > 1) return "many";
+  const f = faces[0];
+  // Orientation-independent: compare against the frame's shorter side
+  const shortSide = Math.min(f.frameWidth, f.frameHeight) || 1;
+  const faceSize = Math.max(f.bounds.width, f.bounds.height);
+  return faceSize / shortSide >= MIN_FACE_RATIO ? "ok" : "far";
+}
+
+const FACE_COPY: Record<FaceState, { text: string; icon: keyof typeof Ionicons.glyphMap; color: string }> = {
+  searching: { text: "Position your face in the oval", icon: "scan-outline", color: colors.white },
+  ok: { text: "Face detected", icon: "checkmark-circle", color: colors.ok },
+  far: { text: "Move a little closer", icon: "resize-outline", color: "#F5B544" },
+  many: { text: "Only one face, please", icon: "people-outline", color: "#F5B544" },
+  off: { text: "Keep your face inside the oval", icon: "scan-outline", color: colors.white },
+};
+
 /**
  * Punch capture, in two steps: frame and shoot, then confirm before it is
  * recorded. A punch is not editable afterwards, so the review step exists to
@@ -504,13 +553,90 @@ const AUTO_REFRESH_MS = 10_000; // re-check location every 10s
  */
 export default function PunchScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { type, sessionNumber } = useLocalSearchParams<{ type: "IN" | "OUT"; sessionNumber?: string }>();
   const punchType: "IN" | "OUT" = type === "OUT" ? "OUT" : "IN";
   const sessionNum = sessionNumber ? parseInt(sessionNumber, 10) : undefined;
   const actionLabel = punchType === "IN" ? "punch in" : "punch out";
 
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { hasPermission, requestPermission } = useCameraPermission();
+  // Front (selfie) by default; the flip button switches to the back camera
+  const [position, setPosition] = useState<"front" | "back">("front");
+  const frontDevice = useCameraDevice("front");
+  const backDevice = useCameraDevice("back");
+  // Fall back to whichever camera exists (a phone or tablet with only one)
+  const device = position === "front" ? frontDevice ?? backDevice : backDevice ?? frontDevice;
+  const facing: "front" | "back" = device != null && device === frontDevice ? "front" : "back";
+  const canFlip = frontDevice != null && backDevice != null;
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [appActive, setAppActive] = useState(AppState.currentState === "active");
+
+  // ── Face detection ──
+  const [faceState, setFaceState] = useState<FaceState>("searching");
+  // Refs so the detector callback (created once) never needs to change
+  const faceStateRef = useRef<FaceState>("searching");
+  const lastFaceAt = useRef(0);
+  const detectorHeard = useRef(false);
+  const capturingRef = useRef(false);
+
+  const setFace = useCallback((next: FaceState) => {
+    if (faceStateRef.current === next) return; // skip no-op renders
+    faceStateRef.current = next;
+    setFaceState(next);
+  }, []);
+
+  // Created once per camera (front/back). Don't use the library's
+  // useFaceDetectorOutput hook: its memo depends on a fresh options object, so
+  // it rebuilds the native output on every render, which reconfigures and
+  // closes the camera session.
+  const faceOutput = useMemo(
+    () =>
+      createFaceDetectorOutput({
+        performanceMode: "fast",
+        minFaceSize: 0.15,
+        cameraFacing: facing,
+        outputResolution: "preview",
+        onFacesDetected: (faces) => {
+          detectorHeard.current = true;
+          if (capturingRef.current || faceStateRef.current === "off") return;
+          const next = classifyFaces(faces);
+          const now = Date.now();
+          if (next === "searching") {
+            // Brief misses (blink, head turn) don't flip the oval back
+            if (now - lastFaceAt.current < FACE_LOST_MS) return;
+          } else {
+            lastFaceAt.current = now;
+          }
+          setFace(next);
+        },
+        onError: (e) => {
+          console.warn("[punch] face detector error:", e);
+          setFace("off");
+        },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [facing],
+  );
+
+  // Photo output: stable because its options are module-level constants
+  const photoOutput = usePhotoOutput({ targetResolution: PHOTO_RESOLUTION, quality: 0.9 });
+  const outputs = useMemo(() => [photoOutput, faceOutput], [photoOutput, faceOutput]);
+
+  // Detector never reported (unsupported phone, ML model missing): don't block punching
+  useEffect(() => {
+    if (!cameraReady) return;
+    const t = setTimeout(() => {
+      if (!detectorHeard.current) setFace("off");
+    }, DETECTOR_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [cameraReady, setFace]);
+
+  // Release the camera while the app is in the background
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => setAppActive(st === "active"));
+    return () => sub.remove();
+  }, []);
 
   const [loc, setLoc] = useState<LocState>({ kind: "pending" });
   const [phase, setPhase] = useState<Phase>("capture");
@@ -603,20 +729,26 @@ export default function PunchScreen() {
   }
 
   const outOfRange = !punchAnywhere && geoCheck !== null && !geoCheck.inRange;
+  // A face must be in the oval, unless the detector isn't working on this phone
+  const faceBlocked = faceState !== "ok" && faceState !== "off";
 
   async function onCapture() {
-    if (busy) return;
+    if (busy || !cameraReady || faceBlocked) return;
     setError(null);
     setBusy(true);
+    capturingRef.current = true; // no face re-renders mid-capture
     try {
-      const shot = await cameraRef.current?.takePictureAsync({ quality: 0.9, skipProcessing: true });
-      if (!shot?.uri) throw new Error("capture failed");
-      const compressed = await compressPhoto(shot.uri);
+      // filePath is a bare filesystem path; the image manipulator wants a file:// URI
+      const file = await photoOutput.capturePhotoToFile({}, {});
+      // Already mirrored by Vision Camera (mirrorMode 'auto' on the front camera)
+      const compressed = await compressPhoto(`file://${file.filePath}`, { mirror: false });
       setPhotoUri(compressed);
       setPhase("review");
-    } catch {
+    } catch (e) {
+      console.warn("[punch] capture failed:", e);
       setError("Couldn't take the photo. Try again.");
     } finally {
+      capturingRef.current = false;
       setBusy(false);
     }
   }
@@ -648,22 +780,26 @@ export default function PunchScreen() {
     }
   }
 
+  function flipCamera() {
+    if (busy || !canFlip) return;
+    setCameraReady(false); // shutter waits for the new camera's preview
+    lastFaceAt.current = 0;
+    detectorHeard.current = false; // the new detector gets its own 5s grace
+    if (faceStateRef.current !== "off") setFace("searching");
+    setPosition((p) => (p === "front" ? "back" : "front"));
+  }
+
   function onRetake() {
     setPhotoUri(null);
     setError(null);
     setGeoAlert(null);
+    setCameraReady(false);
+    lastFaceAt.current = 0;
+    if (faceStateRef.current !== "off") setFace("searching");
     setPhase("capture");
   }
 
-  if (!permission) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator color={colors.brand} />
-      </View>
-    );
-  }
-
-  if (!permission.granted) {
+  if (!hasPermission) {
     return (
       <SafeAreaView style={styles.permission}>
         <Ionicons name="camera-outline" size={44} color={colors.brand} />
@@ -677,10 +813,33 @@ export default function PunchScreen() {
     );
   }
 
+  if (!device) {
+    return (
+      <SafeAreaView style={styles.permission}>
+        <ActivityIndicator color={colors.brand} />
+        <Text style={styles.permBody}>Starting the camera…</Text>
+        <Button label="Cancel" variant="secondary" onPress={() => router.back()} />
+      </SafeAreaView>
+    );
+  }
+
+  const face = FACE_COPY[faceState];
+
   return (
     <View style={styles.root}>
       {phase === "capture" ? (
-        <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="front" />
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={appActive}
+          outputs={outputs}
+          onPreviewStarted={() => setCameraReady(true)}
+          onPreviewStopped={() => setCameraReady(false)}
+          onError={(e) => {
+            console.warn("[punch] camera error:", e);
+            setCameraError("The camera stopped. Close this screen and try again.");
+          }}
+        />
       ) : photoUri ? (
         <Image source={{ uri: photoUri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : null}
@@ -704,10 +863,45 @@ export default function PunchScreen() {
                   ? "Punch in"
                   : "Punch out"}
           </Text>
-          <View style={{ width: 28 }} />
+          {phase === "capture" && canFlip ? (
+            <Pressable
+              onPress={flipCamera}
+              disabled={busy}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel={facing === "front" ? "Switch to back camera" : "Switch to front camera"}
+              style={({ pressed }) => [styles.flipBtn, { opacity: busy ? 0.4 : pressed ? 0.7 : 1 }]}
+            >
+              <Ionicons name="camera-reverse-outline" size={24} color={colors.white} />
+            </Pressable>
+          ) : (
+            <View style={{ width: 28 }} />
+          )}
         </View>
 
-        {phase === "capture" ? <View style={styles.guide} pointerEvents="none" /> : <View />}
+        {phase === "capture" ? (
+          <View style={styles.guideWrap} pointerEvents="none">
+            <View
+              style={[
+                styles.guide,
+                faceState === "ok" && styles.guideOk,
+                (faceState === "far" || faceState === "many") && styles.guideWarn,
+              ]}
+            />
+            <View style={styles.statusChip} accessibilityLiveRegion="polite">
+              {cameraReady ? (
+                <Ionicons name={face.icon} size={16} color={face.color} />
+              ) : (
+                <ActivityIndicator size="small" color={colors.white} />
+              )}
+              <Text style={[styles.statusText, { color: cameraReady ? face.color : colors.white }]}>
+                {cameraReady ? face.text : "Starting camera…"}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <View />
+        )}
 
         <View style={styles.bottom}>
           {phase === "done" ? (
@@ -745,6 +939,12 @@ export default function PunchScreen() {
             </View>
           ) : null}
 
+          {cameraError && phase === "capture" ? (
+            <View style={styles.wide}>
+              <Notice>{cameraError}</Notice>
+            </View>
+          ) : null}
+
           {error ? (
             <View style={styles.wide}>
               <Notice>
@@ -759,12 +959,14 @@ export default function PunchScreen() {
           {phase === "capture" ? (
             <Pressable
               onPress={onCapture}
-              disabled={busy || outOfRange}
+              disabled={busy || outOfRange || !cameraReady || faceBlocked}
               accessibilityRole="button"
               accessibilityLabel={`Take your ${actionLabel} photo`}
+              accessibilityHint={faceBlocked ? "Enabled once your face is in the oval" : undefined}
               style={({ pressed }) => [
                 styles.shutter,
-                { opacity: busy || outOfRange ? 0.35 : pressed ? 0.85 : 1 },
+                faceState === "ok" && styles.shutterReady,
+                { opacity: busy || outOfRange || !cameraReady || faceBlocked ? 0.35 : pressed ? 0.85 : 1 },
               ]}
             >
               {busy ? <ActivityIndicator color={colors.brand} /> : <View style={styles.shutterInner} />}
@@ -790,6 +992,12 @@ export default function PunchScreen() {
           ) : null}
         </View>
       </SafeAreaView>
+
+      {/* The app uses dark system-bar icons (light theme). Over the camera that
+          is unreadable, so: white status-bar icons here, and a soft light strip
+          behind the navigation buttons so they stay visible over any photo. */}
+      <StatusBar style="light" />
+      <View pointerEvents="none" style={[styles.navScrim, { height: insets.bottom }]} />
     </View>
   );
 }
@@ -926,6 +1134,17 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   topTitle: { ...type.heading, color: colors.white, fontSize: 17 },
+  guideWrap: { alignItems: "center", gap: spacing.md },
+  flipBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    marginRight: -6,
+  },
+  navScrim: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.82)" },
   guide: {
     alignSelf: "center",
     width: 250,
@@ -934,6 +1153,9 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "rgba(255,255,255,0.55)",
   },
+  guideOk: { borderColor: "#22C55E", borderWidth: 4 },
+  guideWarn: { borderColor: "#F5B544", borderWidth: 4 },
+  shutterReady: { borderColor: "#22C55E" },
   bottom: {
     alignItems: "center",
     gap: spacing.lg,

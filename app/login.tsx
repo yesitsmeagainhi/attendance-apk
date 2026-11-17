@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import {
   Image,
   KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +18,7 @@ import { Button, Notice } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
 import { s } from "../src/lib/responsive";
 import { API_BASE_URL, IS_PRODUCTION_TARGET } from "../src/config";
+import { useKeyboardReveal } from "../src/lib/useKeyboardReveal";
 
 const OTP_LENGTH = 6;
 
@@ -38,6 +38,10 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const otpRef = useRef<TextInput>(null);
   const mobileDigits = mobile.replace(/\D/g, "");
+  // Keep the field being typed in (and its button) just above the keyboard
+  const { scrollRef, onScroll, reveal } = useKeyboardReveal();
+  const mobileBlockRef = useRef<View>(null);
+  const otpBlockRef = useRef<View>(null);
 
   async function onRequestOtp() {
     setError(null);
@@ -93,8 +97,13 @@ export default function LoginScreen() {
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      {/* Android is edge-to-edge, so the window no longer resizes for the
+          keyboard on its own: pad on both platforms, then lift the field. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
         <ScrollView
+          ref={scrollRef}
+          onScroll={onScroll}
+          scrollEventThrottle={32}
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
           bounces={false}
@@ -123,6 +132,7 @@ export default function LoginScreen() {
                 <Text style={styles.headline}>Sign in</Text>
                 <Text style={styles.sub}>Enter the mobile number registered with your administrator.</Text>
 
+                <View ref={mobileBlockRef} collapsable={false} style={styles.block}>
                 <Text style={styles.fieldLabel}>MOBILE NUMBER</Text>
                 <View style={[styles.phoneBox, error ? styles.boxError : null]}>
                   <Text style={styles.prefix}>+91</Text>
@@ -142,6 +152,7 @@ export default function LoginScreen() {
                     editable={!busy}
                     returnKeyType="done"
                     onSubmitEditing={onRequestOtp}
+                    onFocus={() => reveal(mobileBlockRef.current)}
                     style={styles.phoneInput}
                     accessibilityLabel="Mobile number"
                   />
@@ -152,6 +163,7 @@ export default function LoginScreen() {
 
                 {error ? <Notice>{error}</Notice> : null}
                 <Button label="Get sign-in code" onPress={onRequestOtp} busy={busy} />
+                </View>
               </>
             ) : (
               <>
@@ -168,6 +180,7 @@ export default function LoginScreen() {
                   </Pressable>
                 </View>
 
+                <View ref={otpBlockRef} collapsable={false} style={styles.block}>
                 <Text style={styles.fieldLabel}>6-DIGIT CODE</Text>
                 <Pressable onPress={() => otpRef.current?.focus()} style={styles.otpRow} accessibilityRole="none">
                   {Array.from({ length: OTP_LENGTH }).map((_, i) => {
@@ -200,6 +213,7 @@ export default function LoginScreen() {
                     autoComplete="sms-otp"
                     maxLength={OTP_LENGTH}
                     editable={!busy}
+                    onFocus={() => reveal(otpBlockRef.current)}
                     caretHidden
                     style={styles.otpHidden}
                     accessibilityLabel="6-digit code"
@@ -208,6 +222,7 @@ export default function LoginScreen() {
 
                 {error ? <Notice>{error}</Notice> : null}
                 <Button label="Verify and sign in" onPress={() => onVerify()} busy={busy} />
+                </View>
                 <Pressable
                   onPress={onRequestOtp}
                   disabled={busy}
@@ -287,6 +302,8 @@ const styles = StyleSheet.create({
   headline: { ...type.title, fontSize: s(24), color: colors.ink, marginTop: spacing.sm },
   sub: { ...type.body, color: colors.inkSoft, lineHeight: s(22), marginTop: -spacing.xs },
 
+  // Field + its button, lifted together above the keyboard (same gap as the sheet)
+  block: { gap: spacing.md },
   fieldLabel: { ...type.label, color: colors.inkSoft, marginTop: spacing.sm },
   phoneBox: {
     flexDirection: "row",
