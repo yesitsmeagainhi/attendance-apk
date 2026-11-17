@@ -110,6 +110,10 @@ async function multipart(
   return { body, contentType: `multipart/form-data; boundary=${boundary}` };
 }
 
+/** One-shot launch prefetch of /api/attendance/status (see api.prefetchStatus). */
+let statusPrefetch: { promise: Promise<PunchStatus>; at: number } | null = null;
+const PREFETCH_MAX_AGE_MS = 15_000;
+
 function getJson(path: string) {
   return request(path, { method: "GET", headers: headers() });
 }
@@ -141,7 +145,23 @@ export const api = {
 
   // ------------------------------------------------------------ attendance
 
-  status: (): Promise<PunchStatus> => getJson("/api/attendance/status"),
+  status: (): Promise<PunchStatus> => {
+    // Hand over the launch prefetch once, if it is still fresh
+    const pre = statusPrefetch;
+    statusPrefetch = null;
+    if (pre && Date.now() - pre.at < PREFETCH_MAX_AGE_MS) return pre.promise;
+    return getJson("/api/attendance/status");
+  },
+
+  /**
+   * Start loading Today's data during launch, while the splash is still up,
+   * so the Today screen's first `status()` call gets it without another wait.
+   */
+  prefetchStatus: () => {
+    const promise: Promise<PunchStatus> = getJson("/api/attendance/status");
+    promise.catch(() => {}); // the screen sees (and handles) any error when it takes it
+    statusPrefetch = { promise, at: Date.now() };
+  },
 
   history: (month?: string): Promise<HistoryResponse> =>
     getJson(`/api/attendance/history${month ? `?month=${encodeURIComponent(month)}` : ""}`),
@@ -215,6 +235,14 @@ export const api = {
   }) => postJson("/api/leave", args),
 
   missPunches: (): Promise<{ requests: MissPunchRequest[] }> => getJson("/api/miss-punch"),
+
+  /** Withdraw your own leave request while it's still pending. */
+  withdrawLeave: (id: string) =>
+    request("/api/leave", {
+      method: "DELETE",
+      headers: headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ id }),
+    }),
 
   createMissPunch: (args: {
     date: string;
@@ -301,6 +329,10 @@ export type HistoryRecord = {
   /** Punched in but never punched out */
   missedPunchOut?: boolean;
   holidayName?: string;
+  /** Half day because of coming in too late (lateByMinutes says how late) */
+  lateHalfDay?: boolean;
+  /** Approved leave that the leave policy doesn't pay for (deducted from salary) */
+  unpaidLeave?: boolean;
 };
 
 export type HistoryResponse = {
@@ -355,6 +387,11 @@ export type TimesheetDay = {
   punchOut: string | null;
   duration: number | null;
   sessions?: SessionInfo[];
+  holidayName?: string;
+  /** Half day because of coming in too late */
+  lateHalfDay?: boolean;
+  /** Approved leave that the leave policy doesn't pay for (deducted from salary) */
+  unpaidLeave?: boolean;
 };
 
 export type Timesheet = {
@@ -365,6 +402,8 @@ export type Timesheet = {
   absentDays: number;
   halfDays: number;
   leaveDays: number;
+  /** Of the leave days, how many are unpaid */
+  unpaidLeaveDays?: number;
   isFlexible?: boolean;
 };
 

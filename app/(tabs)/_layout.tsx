@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Animated, Pressable } from "react-native";
+import { Animated, Platform, Pressable } from "react-native";
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,15 +8,33 @@ import { colors } from "../../src/theme";
 import { s } from "../../src/lib/responsive";
 
 /**
- * Wraps every tab button with:
- *   1. Light haptic feedback on press
- *   2. A quick scale-pop on the icon so the press registers visually
+ * A barely-there tick when switching tabs.
+ *
+ * Android: the system haptic engine's "segment tick" (the tick a picker makes),
+ * which follows the phone's own Touch feedback setting. impactAsync drives the
+ * vibration motor directly instead, and even "Light" is a full buzz on many
+ * Android phones. iOS: the standard selection tick.
  */
-function HapticTabButton({ children, onPress, style }: any) {
+function tabTick() {
+  const p =
+    Platform.OS === "android"
+      ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Segment_Tick)
+      : Haptics.selectionAsync();
+  p.catch(() => {}); // haptics are a nicety; never let them throw
+}
+
+/**
+ * Wraps every tab button with:
+ *   1. A subtle haptic tick, only when actually switching to another tab
+ *   2. A quick scale-pop on the icon so the press registers visually
+ * The Android system click sound is turned off; the tick is the feedback.
+ */
+function HapticTabButton({ children, onPress, style, ...rest }: any) {
   const scale = useRef(new Animated.Value(1)).current;
+  const selected = !!(rest["aria-selected"] ?? rest.accessibilityState?.selected);
 
   function handlePress(e: any) {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!selected) tabTick();
     Animated.sequence([
       Animated.timing(scale, { toValue: 0.82, duration: 80, useNativeDriver: true }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }),
@@ -27,6 +45,11 @@ function HapticTabButton({ children, onPress, style }: any) {
   return (
     <Pressable
       onPress={handlePress}
+      android_disableSound
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      accessibilityLabel={rest.accessibilityLabel ?? rest["aria-label"]}
+      testID={rest.testID}
       style={[style, { flex: 1, alignItems: "center", justifyContent: "center" }]}
     >
       <Animated.View style={{ transform: [{ scale }] }}>

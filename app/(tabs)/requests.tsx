@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -58,6 +62,26 @@ export default function RequestsScreen() {
     router.setParams({ compose: undefined, punchType: undefined, date: undefined, time: undefined, then: undefined });
   }, [params.compose, params.punchType, params.date, params.time, params.then, router]);
 
+  /** Withdraw a leave request that hasn't been reviewed yet. */
+  function withdrawLeave(id: string) {
+    Alert.alert("Withdraw leave request?", "Your admin will no longer see this request.", [
+      { text: "Keep it", style: "cancel" },
+      {
+        text: "Withdraw",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setError(null);
+            await api.withdrawLeave(id);
+            load();
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : "Couldn't withdraw the request.");
+          }
+        },
+      },
+    ]);
+  }
+
   /** After a "forgot to punch in" request: go straight on to the punch (now a punch-out). */
   async function continueToPunch() {
     try {
@@ -89,11 +113,68 @@ export default function RequestsScreen() {
     useCallback(() => { load(); }, [load]),
   );
 
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollY = useRef(0);
+
+  /**
+   * Lift a form field so it sits just above the keyboard, and no higher.
+   *
+   * Everything is measured on the device at the moment the keyboard is up:
+   * the field, the scroll area's visible bottom (already shortened by the
+   * KeyboardAvoidingView padding) and, when the keyboard event gives it, the
+   * keyboard's real top edge. Whichever edge is higher is the limit, so it
+   * fits any phone size, keyboard height, gesture or 3-button navigation.
+   * The view only scrolls by the amount the field is hidden; a field that is
+   * already fully visible doesn't move.
+   */
+  const revealField = useCallback((field: View | null) => {
+    if (!field) return;
+    let done = false;
+    const run = (keyboardTop?: number) => {
+      if (done) return;
+      done = true;
+      sub.remove();
+      clearTimeout(fallback);
+      const scroll = scrollRef.current;
+      if (!scroll) return;
+      field.measureInWindow((_fx, fy, _fw, fh) => {
+        (scroll as unknown as View).measureInWindow((_sx, sy, _sw, sh) => {
+          let visibleBottom = sy + sh;
+          if (keyboardTop && keyboardTop > sy) visibleBottom = Math.min(visibleBottom, keyboardTop);
+          const gap = spacing.md; // breathing room between the box and the keyboard
+          const hiddenBy = fy + fh + gap - visibleBottom;
+          if (hiddenBy <= 0) return; // already visible
+          // Never push the field's top out of view (very small screens)
+          const maxLift = Math.max(0, fy - sy - gap);
+          const lift = Math.min(hiddenBy, maxLift || hiddenBy);
+          scroll.scrollTo({ y: scrollY.current + lift, animated: true });
+        });
+      });
+    };
+    const sub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        const top = e?.endCoordinates?.screenY;
+        // Let the padding for the keyboard apply before measuring
+        requestAnimationFrame(() => setTimeout(() => run(top), Platform.OS === "ios" ? 250 : 30));
+      },
+    );
+    // Keyboard already open (moving between fields): no show event will come
+    const fallback = setTimeout(() => run(), 450);
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
+      {/* Android is edge-to-edge, so the window no longer resizes for the
+          keyboard on its own: pad the screen instead, on both platforms. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <ScrollView
+        ref={scrollRef}
+        onScroll={(e) => { scrollY.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={32}
         contentContainerStyle={styles.scroll}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         refreshControl={<RefreshControl refreshing={loading} onRefresh={load} tintColor={colors.brand} />}
       >
         <Title>Requests</Title>
@@ -107,11 +188,12 @@ export default function RequestsScreen() {
 
         {composing ? (
           tab === "leave" ? (
-            <LeaveForm onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
+            <LeaveForm onReveal={revealField} onDone={() => { setComposing(false); load(); }} onCancel={() => setComposing(false)} />
           ) : (
             <MissPunchForm
               key={prefill ? `${prefill.date}-${prefill.punchType}-${prefill.time ?? ""}` : "blank"}
               prefill={prefill}
+              onReveal={revealField}
               onDone={() => {
                 const then = prefill?.then;
                 setComposing(false);
@@ -139,6 +221,7 @@ export default function RequestsScreen() {
                 reason={r.reason}
                 status={r.status}
                 note={r.adminNote}
+                onWithdraw={r.status === "pending" ? () => withdrawLeave(r.id) : undefined}
               />
             ))
           ) : loading ? null : <Muted>No leave requests yet.</Muted>
@@ -155,13 +238,15 @@ export default function RequestsScreen() {
           ))
         ) : loading ? null : <Muted>No miss-punch requests yet.</Muted>}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 // ─── Leave form ────────────────────────────────────────────────────────────────
 
-function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+function LeaveForm({ onDone, onCancel, onReveal }: { onDone: () => void; onCancel: () => void; onReveal: (v: View | null) => void }) {
+  const reasonRef = useRef<View>(null);
   const [leaveType, setLeaveType] = useState<(typeof LEAVE_TYPES)[number]>("casual");
   const [fromDate, setFromDate] = useState(todayDate());
   const [toDate, setToDate] = useState(todayDate());
@@ -210,11 +295,12 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
       />
       <DateField label="To" value={toDate} minimumDate={fromDate} onChange={setToDate} />
 
-      <View style={styles.fieldWrap}>
+      <View ref={reasonRef} collapsable={false} style={styles.fieldWrap}>
         <Label>Reason</Label>
         <TextInput
           value={reason}
           onChangeText={setReason}
+          onFocus={() => onReveal(reasonRef.current)}
           placeholder="Fever, advised rest"
           placeholderTextColor={colors.muted}
           multiline
@@ -231,7 +317,8 @@ function LeaveForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => v
 
 // ─── Miss-punch form ───────────────────────────────────────────────────────────
 
-function MissPunchForm({ prefill, onDone, onCancel }: { prefill?: MissPunchPrefill | null; onDone: () => void; onCancel: () => void }) {
+function MissPunchForm({ prefill, onDone, onCancel, onReveal }: { prefill?: MissPunchPrefill | null; onDone: () => void; onCancel: () => void; onReveal: (v: View | null) => void }) {
+  const reasonRef = useRef<View>(null);
   const [date, setDate] = useState(() => (prefill ? fromYMD(prefill.date) : todayDate()));
   const [punchType, setPunchType] = useState<"IN" | "OUT">(prefill?.punchType ?? "OUT");
   const [time, setTime] = useState(() => {
@@ -286,11 +373,12 @@ function MissPunchForm({ prefill, onDone, onCancel }: { prefill?: MissPunchPrefi
       <DateField label="Date" value={date} maximumDate={todayDate()} onChange={setDate} />
       <TimeField label="Time" value={time} onChange={setTime} />
 
-      <View style={styles.fieldWrap}>
+      <View ref={reasonRef} collapsable={false} style={styles.fieldWrap}>
         <Label>Reason</Label>
         <TextInput
           value={reason}
           onChangeText={setReason}
+          onFocus={() => onReveal(reasonRef.current)}
           placeholder="Phone battery died before punch out"
           placeholderTextColor={colors.muted}
           multiline
@@ -556,8 +644,10 @@ function TimeModal({
 
 // ─── Request list row ──────────────────────────────────────────────────────────
 
-function RequestRow({ title, when, reason, status, note }: {
+function RequestRow({ title, when, reason, status, note, onWithdraw }: {
   title: string; when: string; reason: string; status: RequestStatus; note: string | null;
+  /** Shown for pending leave requests */
+  onWithdraw?: () => void;
 }) {
   const palette =
     status === "approved" ? { fg: colors.ok, bg: colors.okTint } :
@@ -573,6 +663,16 @@ function RequestRow({ title, when, reason, status, note }: {
       <Text style={styles.reqWhen}>{when}</Text>
       <Text style={styles.reqReason}>{reason}</Text>
       {note ? <Text style={styles.reqNote}>Admin: {note}</Text> : null}
+      {onWithdraw ? (
+        <Pressable
+          onPress={onWithdraw}
+          accessibilityRole="button"
+          hitSlop={8}
+          style={({ pressed }) => [styles.withdrawBtn, pressed && { opacity: 0.7 }]}
+        >
+          <Text style={styles.withdrawText}>Withdraw request</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -668,6 +768,12 @@ const styles = StyleSheet.create({
   reqWhen: { ...type.small, color: colors.brand, fontWeight: "600" },
   reqReason: { ...type.small, color: colors.inkSoft, lineHeight: s(19) },
   reqNote: { ...type.small, color: colors.muted, fontStyle: "italic" },
+  withdrawBtn: {
+    alignSelf: "flex-start", marginTop: s(4),
+    borderWidth: 1, borderColor: colors.danger, borderRadius: radius.pill,
+    paddingHorizontal: spacing.md, paddingVertical: s(5),
+  },
+  withdrawText: { ...type.small, fontSize: s(12), color: colors.danger, fontWeight: "700" },
 });
 
 const calStyles = StyleSheet.create({

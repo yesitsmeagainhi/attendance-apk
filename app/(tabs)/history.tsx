@@ -291,7 +291,14 @@ function DayDetail({
       ) : null}
 
       {record.lateByMinutes ? (
-        <Text style={styles.detailSub}>Late by {formatDuration(record.lateByMinutes)}</Text>
+        <Text style={record.lateHalfDay ? styles.detailWarn : styles.detailSub}>
+          Late by {formatDuration(record.lateByMinutes)}
+          {record.lateHalfDay ? ", so this day counts as a half day" : ""}
+        </Text>
+      ) : null}
+
+      {record.unpaidLeave ? (
+        <Text style={styles.detailWarn}>Approved leave, but unpaid: deducted from salary</Text>
       ) : null}
 
       {showSessions ? (
@@ -470,6 +477,7 @@ const styles = StyleSheet.create({
   detailTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
   detailDate: { ...type.heading, color: colors.ink, flex: 1 },
   detailSub: { ...type.small, color: colors.muted },
+  detailWarn: { ...type.small, color: colors.danger, fontWeight: "600" },
   timesRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   timeBlock: { gap: s(2) },
   timeLabel: { ...type.label, fontSize: s(10), color: colors.muted },

@@ -88,6 +88,11 @@ export default function TimesheetScreen() {
                   <Stat value={data.leaveDays} label="Leave" tone={colors.brand} />
                   <Stat value={data.absentDays} label="Absent" tone={colors.danger} />
                 </View>
+                {data.unpaidLeaveDays ? (
+                  <Muted>
+                    {`${data.unpaidLeaveDays} of your leave day${data.unpaidLeaveDays === 1 ? " is" : "s are"} unpaid (deducted from salary).`}
+                  </Muted>
+                ) : null}
               </Card>
             ) : null}
           </View>
@@ -129,7 +134,7 @@ function DayRow({ day, isFlex }: { day: TimesheetDay; isFlex: boolean }) {
               {formatTime(day.punchIn)} — {formatTime(day.punchOut)}
             </Text>
           )}
-          <Text style={styles.rowStatus}>{day.status}</Text>
+          <Text style={[styles.rowStatus, day.unpaidLeave && { color: colors.danger, fontWeight: "700" }]}>{dayLabel(day)}</Text>
         </View>
         <Text style={styles.rowDuration}>{formatDuration(day.duration)}</Text>
       </View>
@@ -151,6 +156,14 @@ function DayRow({ day, isFlex }: { day: TimesheetDay; isFlex: boolean }) {
       ) : null}
     </View>
   );
+}
+
+/** Status text for a day; leave and half days say why. */
+function dayLabel(day: TimesheetDay): string {
+  if (day.status === "leave") return day.unpaidLeave ? "Unpaid leave" : "Leave";
+  if (day.status === "half" && day.lateHalfDay) return "Half day (came in late)";
+  if (day.status === "holiday" && day.holidayName) return day.holidayName;
+  return day.status;
 }
 
 /** The timesheet API returns dayOfWeek as a JS day index, not a name. */

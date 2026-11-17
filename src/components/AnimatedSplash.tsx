@@ -23,8 +23,8 @@ import { splashTarget } from "../lib/splash-target";
  * React re-render or the JS thread mid-flight.
  */
 const LOGO_SIZE = 220; // keep in sync with imageWidth in app.json
-const HOLD_MS = 600; // full-page logo is seen before it moves
-const FLIGHT_MS = 850;
+const HOLD_MS = 250; // brief beat on the full-page logo before it moves
+const FLIGHT_MS = 650;
 const MAX_WAIT_MS = 1200; // give up waiting for Today's header and just fade
 
 type Rect = { x: number; y: number; width: number; height: number };

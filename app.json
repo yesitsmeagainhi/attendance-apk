@@ -2,7 +2,7 @@
   "expo": {
     "name": "ASM Vikas",
     "slug": "asm-vikas",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "asmvikas",
@@ -13,7 +13,7 @@
     ],
     "android": {
       "package": "com.asmvikas.app",
-      "versionCode": 4,
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",

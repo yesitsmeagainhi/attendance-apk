@@ -70,6 +70,7 @@ export function statusColors(status: string): { fg: string; bg: string } {
     case "Short Day":
       return { fg: colors.warn, bg: colors.warnTint };
     case "Absent":
+    case "Unpaid Leave": // approved, but deducted from salary
       return { fg: colors.danger, bg: colors.dangerTint };
     case "Leave":
     case "Paid Holiday":

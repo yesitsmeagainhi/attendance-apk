@@ -10,7 +10,6 @@ import { api, ApiError, setAuthToken } from "../api/client";
 const TOKEN_KEY = "attendly.session.token";
 const NAME_KEY = "attendly.session.name";
 const EMPLOYEE_KEY = "attendly.session.employeeId";
-const SESSION_CHECK_TIMEOUT_MS = 5000;
 
 type Session = { token: string; name: string; employeeId: string };
 
@@ -30,45 +29,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
+      let token: string | null = null;
       try {
-        const token = await SecureStore.getItemAsync(TOKEN_KEY);
-        if (!token) return;
-
-        setAuthToken(token);
-        // The server is the authority on whether this token still works. An
-        // employee signing in elsewhere invalidates it, since verify-otp drops
-        // existing sessions.
-        try {
-          // Don't hold the splash on a slow network: past the timeout, treat it
-          // like being offline and keep the stored session.
-          const check = await Promise.race([
-            api.sessionCheck(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new ApiError("timeout", 0)), SESSION_CHECK_TIMEOUT_MS),
-            ),
-          ]);
-          if (!check?.valid) throw new ApiError("invalid", 401);
-        } catch (err) {
-          // Only clear the session when the server explicitly says the token
-          // is invalid (401/403). Network errors (status 0, timeouts, no
-          // connectivity) should NOT log the user out — they can retry once
-          // they have a connection again.
-          const status = err instanceof ApiError ? err.status : 0;
-          if (status === 401 || status === 403) {
-            await clearStorage();
-            setAuthToken(null);
-            return;
-          }
-          // Network/server error — keep the stored session and proceed offline
-        }
-
-        const [name, employeeId] = await Promise.all([
+        // Local reads only: launch never waits on the network
+        const [t, name, employeeId] = await Promise.all([
+          SecureStore.getItemAsync(TOKEN_KEY),
           SecureStore.getItemAsync(NAME_KEY),
           SecureStore.getItemAsync(EMPLOYEE_KEY),
         ]);
-        setSession({ token, name: name ?? "", employeeId: employeeId ?? "" });
+        token = t;
+        if (token) {
+          setAuthToken(token);
+          // Start loading Today's data now, in parallel with the splash
+          api.prefetchStatus();
+          setSession({ token, name: name ?? "", employeeId: employeeId ?? "" });
+        }
+      } catch {
+        // Unreadable keystore: fall through to the login screen
       } finally {
         setRestoring(false);
+      }
+
+      if (!token) return;
+      // The server is still the authority on whether this token works (an
+      // employee signing in elsewhere invalidates it, since verify-otp drops
+      // existing sessions), but that is checked in the background now. Only an
+      // explicit 401/403 signs the user out; network errors keep the session.
+      try {
+        const check = await api.sessionCheck();
+        if (!check?.valid) throw new ApiError("invalid", 401);
+      } catch (err) {
+        const status = err instanceof ApiError ? err.status : 0;
+        if (status === 401 || status === 403) {
+          await clearStorage();
+          setAuthToken(null);
+          setSession(null); // the root gate sends the user to Login
+        }
       }
     })();
   }, []);
