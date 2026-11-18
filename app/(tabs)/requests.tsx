@@ -272,26 +272,30 @@ function LeaveForm({ onDone, onCancel, onReveal }: { onDone: () => void; onCance
 function MissPunchForm({ prefill, onDone, onCancel, onReveal }: { prefill?: MissPunchPrefill | null; onDone: () => void; onCancel: () => void; onReveal: (v: View | null) => void }) {
   const reasonRef = useRef<View>(null);
   const [date, setDate] = useState(() => (prefill ? fromYMD(prefill.date) : todayDate()));
-  const [punchType, setPunchType] = useState<"IN" | "OUT">(prefill?.punchType ?? "OUT");
-  const [time, setTime] = useState(() => {
-    const d = new Date();
-    const [h, m] = (prefill?.time ?? "18:30").split(":").map(Number);
-    d.setHours(isNaN(h) ? 18 : h, isNaN(m) ? 30 : m, 0, 0);
-    return d;
-  });
+  // Punch type and time start EMPTY on purpose, even when opened pre-filled:
+  // with a default already ticked, employees submitted it unchecked and sent a
+  // punch-out (or the wrong time) instead of the punch they actually missed.
+  const [punchType, setPunchType] = useState<"IN" | "OUT" | null>(null);
+  const [time, setTime] = useState<Date | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fromReminder = prefill?.then === "punch";
 
-  async function submit() {
-    setError(null);
-    if (reason.trim().length < 5) {
-      setError("The reason needs at least 5 characters.");
-      return;
-    }
+  // Where the time picker opens (a suggestion only; nothing is selected until
+  // the employee confirms a time): the shift start from the reminder, else now.
+  const suggestedTime = (() => {
+    const d = new Date();
+    const [h, m] = (prefill?.time ?? "").split(":").map(Number);
+    if (!isNaN(h) && !isNaN(m)) d.setHours(h, m, 0, 0);
+    else d.setSeconds(0, 0);
+    return d;
+  })();
+
+  async function send(type: "IN" | "OUT", at: Date) {
     setBusy(true);
     try {
-      await api.createMissPunch({ date: toYMD(date), punchType, requestedTime: toHHMM(time), reason: reason.trim() });
+      await api.createMissPunch({ date: toYMD(date), punchType: type, requestedTime: toHHMM(at), reason: reason.trim() });
       onDone();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't submit the request.");
@@ -300,11 +304,40 @@ function MissPunchForm({ prefill, onDone, onCancel, onReveal }: { prefill?: Miss
     }
   }
 
+  function submit() {
+    setError(null);
+    if (!punchType) {
+      setError("Choose which punch you missed: Punch in or Punch out.");
+      return;
+    }
+    if (!time) {
+      setError(`Select the time of your missed ${punchType === "IN" ? "punch-in" : "punch-out"}.`);
+      return;
+    }
+    if (reason.trim().length < 5) {
+      setError("The reason needs at least 5 characters.");
+      return;
+    }
+    // The reminder is only ever about a missing punch-in: double-check a punch-out
+    if (fromReminder && punchType === "OUT") {
+      Alert.alert(
+        "Request a punch-out?",
+        "You came here because no punch-in is recorded today. Usually you need to request your missed Punch in, then punch out with the camera.",
+        [
+          { text: "Change to Punch in", onPress: () => setPunchType("IN") },
+          { text: "Send punch-out", style: "destructive", onPress: () => send(punchType, time) },
+        ],
+      );
+      return;
+    }
+    send(punchType, time);
+  }
+
   return (
     <Card>
-      {prefill?.then === "punch" ? (
+      {fromReminder ? (
         <Notice tone="warn">
-          Request your missed punch-in. After you submit, the camera opens so your punch now is saved as the punch-out.
+          Choose Punch in and the time you started work. After you submit, the camera opens so your punch now is saved as the punch-out.
         </Notice>
       ) : null}
       <Label>Which punch</Label>
@@ -323,7 +356,7 @@ function MissPunchForm({ prefill, onDone, onCancel, onReveal }: { prefill?: Miss
       </View>
 
       <DateField label="Date" value={date} maximumDate={todayDate()} onChange={setDate} />
-      <TimeField label="Time" value={time} onChange={setTime} />
+      <TimeField label="Time" value={time} suggested={suggestedTime} onChange={setTime} />
 
       <View ref={reasonRef} collapsable={false} style={styles.fieldWrap}>
         <Label>Reason</Label>
@@ -379,9 +412,10 @@ function DateField({
 // ─── Time field + time modal ───────────────────────────────────────────────────
 
 function TimeField({
-  label, value, onChange,
+  label, value, suggested, onChange,
 }: {
-  label: string; value: Date; onChange: (d: Date) => void;
+  /** null = nothing chosen yet; the picker then opens on `suggested` */
+  label: string; value: Date | null; suggested?: Date; onChange: (d: Date) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -389,15 +423,19 @@ function TimeField({
       <Label>{label}</Label>
       <Pressable
         onPress={() => setOpen(true)}
+        accessibilityRole="button"
+        accessibilityLabel={value ? `Time, ${formatTime12(toHHMM(value))}` : "Select time"}
         style={({ pressed }) => [styles.pickerRow, pressed && { opacity: 0.7 }]}
       >
         <Ionicons name="time-outline" size={s(18)} color={colors.brand} />
-        <Text style={styles.pickerValue}>{formatTime12(toHHMM(value))}</Text>
+        <Text style={[styles.pickerValue, !value && styles.pickerPlaceholder]}>
+          {value ? formatTime12(toHHMM(value)) : "Select time"}
+        </Text>
         <Ionicons name="chevron-down" size={s(16)} color={colors.muted} />
       </Pressable>
       {open ? <TimeModal
         visible={open}
-        value={value}
+        value={value ?? suggested ?? new Date()}
         onConfirm={(d) => { onChange(d); setOpen(false); }}
         onDismiss={() => setOpen(false)}
       /> : null}
@@ -705,6 +743,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   pickerValue: { flex: 1, fontSize: s(15), color: colors.ink, fontWeight: "600" },
+  pickerPlaceholder: { color: colors.muted, fontWeight: "400" },
   input: {
     borderWidth: 1, borderColor: colors.rule, borderRadius: radius.md,
     paddingHorizontal: spacing.lg, paddingVertical: s(14),

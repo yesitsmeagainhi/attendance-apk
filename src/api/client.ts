@@ -269,6 +269,28 @@ export const api = {
   payslip: (month: string): Promise<{ payslip: Payslip }> =>
     getJson(`/api/payslips?month=${encodeURIComponent(month)}`),
 
+  /** The month's payslip as PDF bytes (same layout as the web panel's download). */
+  payslipPdf: async (month: string): Promise<Uint8Array> => {
+    const path = `/api/payslips/pdf?month=${encodeURIComponent(month)}`;
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE_URL}${path}`, { method: "GET", headers: headers() });
+    } catch (cause) {
+      console.warn(`[api] GET ${path} failed:`, cause);
+      throw new ApiError("Can't reach the attendance server. Check your connection and try again.", 0);
+    }
+    const type = res.headers.get("content-type") ?? "";
+    if (!res.ok || !type.includes("application/pdf")) {
+      // Errors come back as JSON; an older server without this endpoint gives a 404 page
+      if (res.status === 404 && !type.includes("json")) {
+        throw new ApiError("PDF download isn't available on the server yet.", 404);
+      }
+      await parse(res); // throws ApiError with the server's message
+      throw new ApiError("The server didn't return a PDF.", res.status);
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  },
+
   timesheet: (month?: string): Promise<Timesheet> =>
     getJson(`/api/attendance/timesheet${month ? `?month=${encodeURIComponent(month)}` : ""}`),
 

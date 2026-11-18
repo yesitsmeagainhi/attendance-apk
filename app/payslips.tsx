@@ -2,8 +2,21 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, ApiError, Payslip, PayslipSummary } from "../src/api/client";
+import { useAuth } from "../src/auth/AuthContext";
+import { markPayslipSeen } from "../src/lib/payslip-alert";
+import { Directory } from "expo-file-system";
+import * as SecureStore from "expo-secure-store";
+
+/** Remembers the folder the employee last saved a payslip to. */
+const LAST_DIR_KEY = "attendly.payslips.saveDir";
+
+/** Same file name as the web panel and the server: Payslip-Name-YYYY-MM.pdf */
+function pdfFileName(slip: Payslip): string {
+  const name = slip.employee.name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "Employee";
+  return `Payslip-${name}-${slip.month}.pdf`;
+}
 import { Muted, Notice, Title } from "../src/components/ui";
 import { colors, radius, spacing, type } from "../src/theme";
 import { s } from "../src/lib/responsive";
@@ -16,8 +29,11 @@ import { payslipDetails, payslipTable, PayslipRow, rupees } from "../src/lib/pay
  */
 export default function PayslipsScreen() {
   const router = useRouter();
+  const { session } = useAuth();
+  // Opened from the "payslip is ready" alert: start on that month
+  const params = useLocalSearchParams<{ month?: string }>();
   const [list, setList] = useState<PayslipSummary[] | null>(null);
-  const [month, setMonth] = useState<string | null>(null);
+  const [month, setMonth] = useState<string | null>(params.month ?? null);
   const [slip, setSlip] = useState<Payslip | null>(null);
   const [loadingSlip, setLoadingSlip] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +58,12 @@ export default function PayslipsScreen() {
     let cancelled = false;
     setLoadingSlip(true);
     api.payslip(month)
-      .then((r) => { if (!cancelled) setSlip(r.payslip); })
+      .then((r) => {
+        if (cancelled) return;
+        setSlip(r.payslip);
+        // Viewed: the Today alert for this month (or an older one) is done
+        markPayslipSeen(session?.employeeId ?? "", month);
+      })
       .catch((e) => { if (!cancelled) { setSlip(null); setError(e instanceof ApiError ? e.message : "Couldn't load this payslip."); } })
       .finally(() => { if (!cancelled) setLoadingSlip(false); });
     return () => { cancelled = true; };
@@ -52,6 +73,41 @@ export default function PayslipsScreen() {
     setRefreshing(true);
     await loadList();
     setRefreshing(false);
+  }
+
+  // ── Download PDF ──
+  const [downloading, setDownloading] = useState(false);
+  const [savedNote, setSavedNote] = useState<string | null>(null);
+  useEffect(() => setSavedNote(null), [month]);
+
+  /**
+   * Fetch the PDF from the server, then let the employee pick where to save it
+   * (Android's own folder picker, e.g. Downloads). The last folder is remembered
+   * so the picker opens there next time.
+   */
+  async function downloadPdf() {
+    if (!slip || downloading) return;
+    setError(null);
+    setSavedNote(null);
+    setDownloading(true);
+    try {
+      const bytes = await api.payslipPdf(slip.month);
+      let dir: Directory;
+      try {
+        const last = await SecureStore.getItemAsync(LAST_DIR_KEY).catch(() => null);
+        dir = await Directory.pickDirectoryAsync(last ?? undefined);
+      } catch {
+        return; // picker closed without choosing a folder
+      }
+      const file = dir.createFile(pdfFileName(slip), "application/pdf");
+      file.write(bytes);
+      SecureStore.setItemAsync(LAST_DIR_KEY, dir.uri).catch(() => {});
+      setSavedNote(`Saved ${file.name || pdfFileName(slip)}. Open it from your Files app.`);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't save the PDF. Try again.");
+    } finally {
+      setDownloading(false);
+    }
   }
 
   return (
@@ -96,7 +152,28 @@ export default function PayslipsScreen() {
         )}
 
         {loadingSlip ? <ActivityIndicator color={colors.brand} style={{ marginTop: spacing.lg }} /> : null}
-        {slip && !loadingSlip ? <PayslipView slip={slip} /> : null}
+        {slip && !loadingSlip ? (
+          <>
+            <Pressable
+              onPress={downloadPdf}
+              disabled={downloading}
+              accessibilityRole="button"
+              accessibilityLabel={`Download ${slip.monthLabel} payslip as PDF`}
+              style={({ pressed }) => [styles.downloadBtn, (pressed || downloading) && { opacity: 0.75 }]}
+            >
+              {downloading ? (
+                <ActivityIndicator color={colors.white} />
+              ) : (
+                <>
+                  <Ionicons name="download-outline" size={s(18)} color={colors.white} />
+                  <Text style={styles.downloadText}>Download PDF</Text>
+                </>
+              )}
+            </Pressable>
+            {savedNote ? <Notice tone="ok">{savedNote}</Notice> : null}
+            <PayslipView slip={slip} />
+          </>
+        ) : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -175,6 +252,17 @@ const styles = StyleSheet.create({
   },
   scroll: { padding: spacing.lg, paddingTop: 0, gap: spacing.lg, paddingBottom: spacing.xxl },
   months: { gap: spacing.sm },
+  downloadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.brand,
+    borderRadius: radius.lg,
+    minHeight: s(48),
+    paddingHorizontal: spacing.lg,
+  },
+  downloadText: { ...type.heading, color: colors.white, fontWeight: "700" },
   monthChip: {
     paddingHorizontal: spacing.lg, paddingVertical: s(9), borderRadius: radius.pill,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.rule,

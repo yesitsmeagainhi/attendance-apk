@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
-import { Image, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, ApiError, PunchStatus } from "../../src/api/client";
+import { api, ApiError, PayslipSummary, PunchStatus } from "../../src/api/client";
 import { useAuth } from "../../src/auth/AuthContext";
 import { Button, Card, Label, Muted, Notice, Pill, Title } from "../../src/components/ui";
 import { colors, radius, spacing, type } from "../../src/theme";
@@ -12,6 +13,7 @@ import { groupPunchesIntoSessions, Session, SessionSummary } from "../../src/lib
 import { istToday, looksLikeForgottenPunchIn } from "../../src/lib/forgot-punch";
 import ForgotPunchInSheet from "../../src/components/ForgotPunchInSheet";
 import { splashTarget, useSplashLanded } from "../../src/lib/splash-target";
+import { getUnseenPayslip, markPayslipSeen } from "../../src/lib/payslip-alert";
 
 export default function TodayScreen() {
   const { session } = useAuth();
@@ -44,6 +46,30 @@ export default function TodayScreen() {
       load();
     }, [load]),
   );
+
+  // "Your payslip is ready": only salaried staff ever have published payslips
+  const employeeId = session?.employeeId ?? "";
+  const [newSlip, setNewSlip] = useState<PayslipSummary | null>(null);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      getUnseenPayslip(employeeId).then((p) => { if (active) setNewSlip(p); });
+      return () => { active = false; };
+    }, [employeeId]),
+  );
+
+  function openNewSlip() {
+    if (!newSlip) return;
+    markPayslipSeen(employeeId, newSlip.month);
+    setNewSlip(null);
+    router.push({ pathname: "/payslips", params: { month: newSlip.month } });
+  }
+
+  function dismissNewSlip() {
+    if (!newSlip) return;
+    markPayslipSeen(employeeId, newSlip.month);
+    setNewSlip(null);
+  }
 
   const nextType = status?.nextPunchType ?? null;
   const canPunch = !!nextType && (nextType === "IN" ? status?.canPunchIn : status?.canPunchOut);
@@ -141,6 +167,35 @@ export default function TodayScreen() {
         </View>
 
         {error ? <Notice>{error}</Notice> : null}
+
+        {newSlip ? (
+          <View style={styles.slipAlert} accessibilityRole="alert">
+            <View style={styles.slipIcon}>
+              <Ionicons name="wallet-outline" size={s(22)} color={colors.white} />
+            </View>
+            <View style={styles.slipBody}>
+              <Text style={styles.slipTitle}>Your {newSlip.monthLabel} payslip is ready</Text>
+              <Text style={styles.slipSub}>See your earnings, deductions and net pay.</Text>
+              <Pressable
+                onPress={openNewSlip}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.slipBtn, pressed && { opacity: 0.85 }]}
+              >
+                <Text style={styles.slipBtnText}>View payslip</Text>
+                <Ionicons name="arrow-forward" size={s(15)} color={colors.brand} />
+              </Pressable>
+            </View>
+            <Pressable
+              onPress={dismissNewSlip}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss payslip alert"
+              style={styles.slipClose}
+            >
+              <Ionicons name="close" size={s(18)} color="rgba(255,255,255,0.8)" />
+            </Pressable>
+          </View>
+        ) : null}
 
         {pending.length > 0 ? (
           <Notice tone="warn">
@@ -315,6 +370,39 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  // "Payslip is ready" alert
+  slipAlert: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.md,
+    backgroundColor: colors.brand,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+  },
+  slipIcon: {
+    width: s(42),
+    height: s(42),
+    borderRadius: s(21),
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  slipBody: { flex: 1, gap: s(4) },
+  slipTitle: { ...type.heading, color: colors.white },
+  slipSub: { ...type.small, color: "rgba(255,255,255,0.75)" },
+  slipBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: s(6),
+    backgroundColor: colors.white,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: s(7),
+    marginTop: spacing.sm,
+  },
+  slipBtnText: { ...type.small, color: colors.brand, fontWeight: "700" },
+  slipClose: { padding: s(2) },
   mark: {
     width: s(44),
     height: s(44),

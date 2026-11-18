@@ -92,8 +92,8 @@ android {
         applicationId 'com.asmvikas.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "1.2.0"
+        versionCode 6
+        versionName "1.2.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
@@ -104,15 +104,31 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        // Play upload key. Passwords live in android/keystore.properties (gitignored):
+        //   storeFile=../../upload-keystore.jks
+        //   storePassword=...
+        //   keyAlias=...
+        //   keyPassword=...
+        def uploadProps = new Properties()
+        def uploadPropsFile = rootProject.file('keystore.properties')
+        if (uploadPropsFile.exists()) {
+            uploadPropsFile.withInputStream { uploadProps.load(it) }
+            release {
+                storeFile file(uploadProps['storeFile'])
+                storePassword uploadProps['storePassword']
+                keyAlias uploadProps['keyAlias']
+                keyPassword uploadProps['keyPassword']
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            // Signed with the Play upload key when android/keystore.properties exists,
+            // otherwise the debug key (fine for local testing, rejected by Play).
+            signingConfig signingConfigs.findByName('release') ?: signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
             minifyEnabled enableMinifyInReleaseBuilds
