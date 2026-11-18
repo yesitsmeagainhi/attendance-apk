@@ -580,6 +580,34 @@ export default function PunchScreen() {
   const detectorHeard = useRef(false);
   const capturingRef = useRef(false);
 
+  // Set from several signals (session start, preview start, first detector
+  // frame); the ref skips repeat renders once ready.
+  const cameraReadyRef = useRef(false);
+  const markCameraReady = useCallback(() => {
+    if (cameraReadyRef.current) return;
+    cameraReadyRef.current = true;
+    setCameraReady(true);
+  }, []);
+  useEffect(() => {
+    cameraReadyRef.current = cameraReady; // keep in sync when it's reset to false
+  }, [cameraReady]);
+
+  // Preview "re-fit". CameraX adds its TextureView inside the preview view after
+  // React Native has laid the screen out, and RN only re-measures a native
+  // view's children when that view's frame changes. With an unchanged frame the
+  // picture kept a stale size and filled only the top half of the screen. So
+  // the preview starts 1pt short and snaps to full size once the camera is
+  // running: that frame change makes RN measure and lay out the TextureView.
+  const [previewFitted, setPreviewFitted] = useState(false);
+  useEffect(() => {
+    if (!cameraReady) {
+      setPreviewFitted(false);
+      return;
+    }
+    const t = setTimeout(() => setPreviewFitted(true), 120);
+    return () => clearTimeout(t);
+  }, [cameraReady]);
+
   const setFace = useCallback((next: FaceState) => {
     if (faceStateRef.current === next) return; // skip no-op renders
     faceStateRef.current = next;
@@ -599,6 +627,8 @@ export default function PunchScreen() {
         outputResolution: "preview",
         onFacesDetected: (faces) => {
           detectorHeard.current = true;
+          // Frames arriving prove the camera is running
+          markCameraReady();
           if (capturingRef.current || faceStateRef.current === "off") return;
           const next = classifyFaces(faces);
           const now = Date.now();
@@ -829,11 +859,19 @@ export default function PunchScreen() {
     <View style={styles.root}>
       {phase === "capture" ? (
         <Camera
-          style={StyleSheet.absoluteFill}
+          style={[StyleSheet.absoluteFill, !previewFitted && styles.previewUnfitted]}
           device={device}
           isActive={appActive}
           outputs={outputs}
-          onPreviewStarted={() => setCameraReady(true)}
+          // TextureView: resizes with its parent. The default SurfaceView could
+          // be sized mid-way through this screen's slide-in and stay stuck,
+          // showing the preview in only the top half of the screen.
+          implementationMode="compatible"
+          resizeMode="cover"
+          // Readiness from the session too: on some phones the preview view's
+          // own start event never reaches JS, which left the shutter disabled.
+          onStarted={markCameraReady}
+          onPreviewStarted={markCameraReady}
           onPreviewStopped={() => setCameraReady(false)}
           onError={(e) => {
             console.warn("[punch] camera error:", e);
@@ -1135,6 +1173,8 @@ const styles = StyleSheet.create({
   },
   topTitle: { ...type.heading, color: colors.white, fontSize: 17 },
   guideWrap: { alignItems: "center", gap: spacing.md },
+  // See the preview re-fit note in PunchScreen: 1pt short until the camera runs
+  previewUnfitted: { bottom: 1 },
   flipBtn: {
     width: 40,
     height: 40,

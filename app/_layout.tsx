@@ -1,6 +1,6 @@
-import React, { useEffect } from "react";
+import React from "react";
 import { View } from "react-native";
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack } from "expo-router";
 import AnimatedSplash from "../src/components/AnimatedSplash";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
@@ -20,35 +20,32 @@ setTimeout(() => SplashScreen.hide(), SPLASH_FAILSAFE_MS);
 
 function Gate() {
   const { session, restoring } = useAuth();
-  const segments = useSegments();
-  const router = useRouter();
+  const signedIn = !!session;
 
-  // Gate on the login route only. Testing for "inside (tabs)" instead would
-  // bounce every other authenticated route -- /punch and /journal included --
-  // straight back to the tab stack the moment they mounted.
-  const onLogin = segments[0] === "login";
-  // On the screen the session calls for: safe to reveal the app
-  const settled = !restoring && (session ? !onLogin : onLogin);
-
-  useEffect(() => {
-    if (restoring) return;
-    if (!session && !onLogin) router.replace("/login");
-    else if (session && onLogin) router.replace("/(tabs)");
-  }, [session, restoring, onLogin, router]);
-
+  // Protected routes instead of a redirect effect: while signed out the
+  // signed-in screens don't exist, so the router opens Login directly (and the
+  // reverse when signed in). The old effect let Today mount for a moment and
+  // then replaced it with Login; that discarded mount is what logged "Can't
+  // perform a React state update on a component that hasn't mounted yet".
+  // Signing in or out flips the guards, and the router moves to the screen
+  // that is now available.
   return (
     <View style={{ flex: 1 }}>
       {/* The animated intro covers this until the session is restored */}
       {restoring ? null : (
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
-          <Stack.Screen name="login" options={{ animation: "fade" }} />
-          <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
-          <Stack.Screen name="punch" options={{ presentation: "fullScreenModal" }} />
-          <Stack.Screen name="journal" />
-          <Stack.Screen name="payslips" />
+          <Stack.Protected guard={signedIn}>
+            <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+            <Stack.Screen name="punch" options={{ presentation: "fullScreenModal" }} />
+            <Stack.Screen name="journal" />
+            <Stack.Screen name="payslips" />
+          </Stack.Protected>
+          <Stack.Protected guard={!signedIn}>
+            <Stack.Screen name="login" options={{ animation: "fade" }} />
+          </Stack.Protected>
         </Stack>
       )}
-      <AnimatedSplash ready={settled} />
+      <AnimatedSplash ready={!restoring} />
     </View>
   );
 }

@@ -420,6 +420,9 @@ export type Profile = {
   office: string;
   role: string;
   createdAt: string;
+  /** Employee's company (admin-set, else the default company). Empty or absent
+   *  when none is configured, or on a server older than this field. */
+  companyName?: string;
   /** Set by the server after a successful photo upload. */
   photoUrl?: string | null;
 };

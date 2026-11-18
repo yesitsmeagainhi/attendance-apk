@@ -179,6 +179,9 @@ export default function ProfileScreen() {
             {/* ── Work details ── */}
             <Card>
               <Label>Work details</Label>
+              {profile.companyName?.trim() ? (
+                <InfoRow icon="business-outline" label="Company" value={profile.companyName.trim()} />
+              ) : null}
               <InfoRow
                 icon="briefcase-outline"
                 label="Role"
